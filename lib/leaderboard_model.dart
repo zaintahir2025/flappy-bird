@@ -1,13 +1,24 @@
+// Standard Dart library for converting objects to and from JSON (JavaScript Object Notation) strings
 import 'dart:convert';
 
-/// Represents a single score record in the Hall of Fame.
+/// Represents a single persistent score record in the Hall of Fame leaderboard.
 class LeaderboardEntry {
+  // The pilot's callsign or nickname (e.g., 'ACE', 'SKY_KING')
   final String name;
+
+  // The total number of pipe pairs successfully passed in this run
   final int score;
+
+  // The timestamp string or title rank when the score was set (e.g., 'Master', 'Champion')
   final String date;
+
+  // Medal awarded for this achievement ('Platinum', 'Gold', 'Silver', 'Bronze')
   final String medal;
+
+  // The bird skin identifier used during the flight ('classic', 'phoenix', 'cyber', 'gold')
   final String skin;
 
+  // Constant constructor requiring core properties and defaulting skin to 'classic'
   const LeaderboardEntry({
     required this.name,
     required this.score,
@@ -16,6 +27,8 @@ class LeaderboardEntry {
     this.skin = 'classic',
   });
 
+  /// Serializes this LeaderboardEntry object into a standard Dart Map of key-value pairs.
+  /// Used before converting to a JSON string for storage on disk or in the browser.
   Map<String, dynamic> toJson() => {
         'name': name,
         'score': score,
@@ -24,6 +37,8 @@ class LeaderboardEntry {
         'skin': skin,
       };
 
+  /// Factory constructor to reconstruct a LeaderboardEntry from a deserialized JSON Map.
+  /// Includes safe null-coalescing defaults so corrupted data never crashes the app.
   factory LeaderboardEntry.fromJson(Map<String, dynamic> json) =>
       LeaderboardEntry(
         name: json['name'] as String? ?? 'PILOT',
@@ -33,21 +48,29 @@ class LeaderboardEntry {
         skin: json['skin'] as String? ?? 'classic',
       );
 
+  /// Decodes a raw JSON string into a strongly-typed List of LeaderboardEntry items.
+  /// If parsing fails for any reason (e.g., corrupted file), falls back to the default champions list.
   static List<LeaderboardEntry> decodeList(String raw) {
     try {
+      // Decode the raw JSON string into dynamic List elements
       final decoded = jsonDecode(raw) as List<dynamic>;
+
+      // Map each JSON object to a LeaderboardEntry model instance
       return decoded
           .map((e) => LeaderboardEntry.fromJson(e as Map<String, dynamic>))
           .toList();
     } catch (_) {
+      // Safe fallback if JSON structure is damaged or invalid
       return defaultLeaderboard;
     }
   }
 
+  /// Encodes a List of LeaderboardEntry items into a formatted JSON string for saving.
   static String encodeList(List<LeaderboardEntry> list) {
     return jsonEncode(list.map((e) => e.toJson()).toList());
   }
 
+  /// Seeded arcade champions displayed when the game is launched for the first time.
   static const List<LeaderboardEntry> defaultLeaderboard = [
     LeaderboardEntry(
       name: 'SKY_KING',
@@ -94,13 +117,21 @@ class LeaderboardEntry {
   ];
 }
 
-/// Cumulative career statistics for the local player.
+/// Cumulative lifetime career statistics for the local pilot across all games played.
 class PlayerStats {
+  // Total number of game rounds started
   final int gamesPlayed;
+
+  // Total cumulative wing flaps / screen taps across all sessions
   final int totalFlaps;
+
+  // Total points accumulated across all career games
   final int totalScore;
+
+  // Highest individual score ever achieved
   final int bestScore;
 
+  // Constant constructor initializing all fields to 0 by default
   const PlayerStats({
     this.gamesPlayed = 0,
     this.totalFlaps = 0,
@@ -108,9 +139,11 @@ class PlayerStats {
     this.bestScore = 0,
   });
 
+  /// Computes the lifetime average score per game played (avoids division by zero).
   double get averageScore =>
       gamesPlayed > 0 ? (totalScore / gamesPlayed) : 0.0;
 
+  /// Serializes the career statistics into a JSON-compatible key-value Map.
   Map<String, dynamic> toJson() => {
         'gamesPlayed': gamesPlayed,
         'totalFlaps': totalFlaps,
@@ -118,6 +151,7 @@ class PlayerStats {
         'bestScore': bestScore,
       };
 
+  /// Deserializes a JSON Map into a strongly-typed PlayerStats object with safe defaults.
   factory PlayerStats.fromJson(Map<String, dynamic> json) => PlayerStats(
         gamesPlayed: (json['gamesPlayed'] as num?)?.toInt() ?? 0,
         totalFlaps: (json['totalFlaps'] as num?)?.toInt() ?? 0,
@@ -125,6 +159,7 @@ class PlayerStats {
         bestScore: (json['bestScore'] as num?)?.toInt() ?? 0,
       );
 
+  /// Immutable update helper: creates a copy of this PlayerStats object with optional updated fields.
   PlayerStats copyWith({
     int? gamesPlayed,
     int? totalFlaps,

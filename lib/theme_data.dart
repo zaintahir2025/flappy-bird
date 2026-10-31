@@ -1,27 +1,58 @@
+// Flutter Material Design library for colors, gradients, and icon definitions
 import 'package:flutter/material.dart';
 
+/// Enumeration representing the three selectable dynamic environment themes.
 enum EnvironmentTheme {
   day,
   sunset,
   midnight,
 }
 
+/// Holds all visual parameters, color palettes, and celestial configurations for an environment theme.
 class EnvironmentThemeData {
+  // Enum identifier for this theme
   final EnvironmentTheme theme;
+
+  // Short display label shown in HUD toggles (e.g., 'DAY', 'SUNSET', 'NIGHT')
   final String label;
+
+  // Icon displayed on the theme switcher button
   final IconData icon;
+
+  // Vertical sky gradient color stops from top (sky zenith) to bottom (horizon)
   final List<Color> skyGradient;
+
+  // Tint and opacity applied to scrolling background clouds
   final Color cloudColor;
+
+  // Highlight color for the left side of 3D pipes
   final Color pipePrimary;
+
+  // Shadow color for the right side of 3D pipes
   final Color pipeSecondary;
+
+  // Dark border outline color for pipes
   final Color pipeBorder;
+
+  // Surface grass color for the ground strip
   final Color grassColor;
+
+  // Shadow outline border separating grass from sky
   final Color grassBorder;
+
+  // Base earth/dirt color beneath the grass
   final Color soilColor;
+
+  // Diagonal moving stripe color painted across the ground
   final Color stripeColor;
+
+  // Whether to render the twinkling night starfield
   final bool hasStars;
+
+  // Whether to render the crescent moon in the sky
   final bool hasMoon;
 
+  // Immutable constructor configuring all theme attributes
   const EnvironmentThemeData({
     required this.theme,
     required this.label,
@@ -39,6 +70,7 @@ class EnvironmentThemeData {
     this.hasMoon = false,
   });
 
+  /// The classic retro Flappy Bird day theme: bright cyan skies, puffy white clouds, and green pipes.
   static const EnvironmentThemeData day = EnvironmentThemeData(
     theme: EnvironmentTheme.day,
     label: 'DAY',
@@ -60,6 +92,7 @@ class EnvironmentThemeData {
     hasMoon: false,
   );
 
+  /// Vibrant sunset theme: twilight purple to fiery coral gradients, amber pipes, and warm evening clouds.
   static const EnvironmentThemeData sunset = EnvironmentThemeData(
     theme: EnvironmentTheme.sunset,
     label: 'SUNSET',
@@ -81,6 +114,7 @@ class EnvironmentThemeData {
     hasMoon: false,
   );
 
+  /// Cyberpunk midnight theme: deep interstellar obsidian sky, glowing crescent moon, starfield, and cyan pipes.
   static const EnvironmentThemeData midnight = EnvironmentThemeData(
     theme: EnvironmentTheme.midnight,
     label: 'NIGHT',
@@ -102,6 +136,7 @@ class EnvironmentThemeData {
     hasMoon: true,
   );
 
+  /// Helper factory mapping an EnvironmentTheme enum value to its corresponding theme data bundle.
   static EnvironmentThemeData fromTheme(EnvironmentTheme theme) {
     switch (theme) {
       case EnvironmentTheme.day:

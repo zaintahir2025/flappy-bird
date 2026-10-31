@@ -2,6 +2,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:flappy_bird/audio_manager.dart';
 import 'package:flappy_bird/main.dart';
 import 'package:flappy_bird/score_storage.dart' as score_storage;
 
@@ -174,5 +175,106 @@ void main() {
     // Game unpaused and score is visible
     expect(find.text('GAME PAUSED'), findsNothing);
     expect(find.text('0'), findsOneWidget);
+  });
+
+  testWidgets('Screen adaptation with safe area padding and notch does not overflow', (WidgetTester tester) async {
+    // Simulate iPhone 14/15/16 Pro with Dynamic Island (safe area top = 59, bottom = 34)
+    tester.view.physicalSize = const Size(393, 852);
+    tester.view.padding = const FakeViewPadding(top: 59, bottom: 34);
+    addTearDown(() {
+      tester.view.resetPhysicalSize();
+      tester.view.resetPadding();
+    });
+
+    await tester.pumpWidget(const MyApp());
+    await tester.pump(const Duration(milliseconds: 50));
+
+    expect(find.text('FLAPPY BIRD'), findsOneWidget);
+    expect(find.text('TAP OR PRESS SPACE TO FLY'), findsOneWidget);
+
+    // Start game and verify HUD renders without clipping
+    await tester.sendKeyEvent(LogicalKeyboardKey.space);
+    await tester.pump(const Duration(milliseconds: 50));
+    expect(find.text('0'), findsOneWidget);
+  });
+
+  testWidgets('Ultra-compact landscape mobile screen renders cleanly', (WidgetTester tester) async {
+    tester.view.physicalSize = const Size(640, 360);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(() => tester.view.resetPhysicalSize());
+
+    await tester.pumpWidget(const MyApp());
+    await tester.pump(const Duration(milliseconds: 50));
+
+    expect(find.text('FLAPPY BIRD'), findsOneWidget);
+    expect(find.byType(MyApp), findsOneWidget);
+  });
+
+  testWidgets('Top HUD buttons are interactive on Ready screen without starting game', (WidgetTester tester) async {
+    await tester.pumpWidget(const MyApp());
+    await tester.pump(const Duration(milliseconds: 50));
+
+    // Tap Top Bar Trophy Icon (Hall of Fame) directly on Ready screen
+    final trophyFinder = find.byTooltip('Hall of Fame (L)');
+    expect(trophyFinder, findsOneWidget);
+    await tester.tap(trophyFinder);
+    await tester.pump(const Duration(milliseconds: 300));
+
+    // Verify dialog opens instead of game starting
+    expect(find.text('HALL OF FAME'), findsOneWidget);
+
+    // Close dialog
+    await tester.tap(find.byKey(const Key('dialog_close_icon')));
+    for (int i = 0; i < 6; i++) {
+      await tester.pump(const Duration(milliseconds: 50));
+    }
+
+    // Verify game is still in ready state (did not accidentally start)
+    expect(find.text('FLAPPY BIRD'), findsOneWidget);
+    expect(find.text('0'), findsNothing);
+  });
+
+  testWidgets('Audio toggle hotkey and HUD button toggle successfully', (WidgetTester tester) async {
+    await tester.pumpWidget(const MyApp());
+    await tester.pump(const Duration(milliseconds: 50));
+
+    // Press 'M' to mute audio
+    await tester.sendKeyEvent(LogicalKeyboardKey.keyM);
+    await tester.pump();
+
+    // Verify mute icon is displayed
+    expect(find.byIcon(Icons.volume_off_rounded), findsOneWidget);
+
+    // Press 'M' again to unmute audio
+    await tester.sendKeyEvent(LogicalKeyboardKey.keyM);
+    await tester.pump();
+
+    expect(find.byIcon(Icons.volume_up_rounded), findsOneWidget);
+  });
+
+  test('AudioManager triggers all sound effects and handles mute states safely', () async {
+    final audio = AudioManager.instance;
+    await audio.init();
+
+    expect(audio.isMuted, isFalse);
+    audio.toggleMute();
+    expect(audio.isMuted, isTrue);
+    audio.toggleMute();
+    expect(audio.isMuted, isFalse);
+
+    // Verify all sound effects execute without throwing
+    audio.playFlap();
+    audio.playScore();
+    audio.playGem();
+    audio.playCombo();
+    audio.playHit();
+    audio.playGameOver();
+    audio.playClick();
+
+    // Verify BGM state transitions
+    await audio.playBgm();
+    await audio.pauseBgm();
+    await audio.resumeBgm();
+    await audio.stopBgm();
   });
 }

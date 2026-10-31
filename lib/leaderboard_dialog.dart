@@ -1,9 +1,18 @@
+// Flutter Material Design library for modal dialogs, tab switching, and custom lists
 import 'package:flutter/material.dart';
+
+// Leaderboard and PlayerStats data models
 import 'leaderboard_model.dart';
 
+/// Modal dialog displaying the Hall of Fame Leaderboard and cumulative Pilot Career Statistics.
 class LeaderboardDialog extends StatefulWidget {
+  // The sorted list of top score entries to display
   final List<LeaderboardEntry> leaderboard;
+
+  // The local player's cumulative career stats
   final PlayerStats stats;
+
+  // Optional callback executed when the dialog is dismissed
   final VoidCallback? onClose;
 
   const LeaderboardDialog({
@@ -18,20 +27,25 @@ class LeaderboardDialog extends StatefulWidget {
 }
 
 class _LeaderboardDialogState extends State<LeaderboardDialog> {
-  int _selectedTab = 0; // 0 = Leaderboard, 1 = Pilot Stats
+  // Tracks active segmented tab: 0 = High Score Leaderboard, 1 = Career Pilot Stats
+  int _selectedTab = 0;
 
   @override
   Widget build(BuildContext context) {
+    final screenH = MediaQuery.sizeOf(context).height;
+    final maxH = (screenH * 0.88).clamp(280.0, 540.0);
+
     return Dialog(
-      backgroundColor: Colors.transparent,
-      insetPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+      backgroundColor: Colors.transparent, // Allows custom rounded parchment background
+      insetPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
       child: Center(
         child: Container(
-          constraints: const BoxConstraints(maxWidth: 420, maxHeight: 520),
+          // Constraints ensure dialog looks crisp on mobile screens and does not over-expand on desktop
+          constraints: BoxConstraints(maxWidth: 420, maxHeight: maxH),
           decoration: BoxDecoration(
-            color: const Color(0xFFDED895), // Retro Flappy parchment gold
+            color: const Color(0xFFDED895), // Retro Flappy parchment gold background
             borderRadius: BorderRadius.circular(20),
-            border: Border.all(color: const Color(0xFF558022), width: 4),
+            border: Border.all(color: const Color(0xFF558022), width: 4), // Chunky green arcade border
             boxShadow: const [
               BoxShadow(
                 color: Colors.black87,
@@ -43,13 +57,13 @@ class _LeaderboardDialogState extends State<LeaderboardDialog> {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              // Header banner with Title & Close button
+              // 1. Header banner with Title & Close (X) button
               Container(
                 width: double.infinity,
                 padding:
                     const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
                 decoration: const BoxDecoration(
-                  color: Color(0xFFF09030),
+                  color: Color(0xFFF09030), // Warm amber header bar
                   borderRadius: BorderRadius.only(
                     topLeft: Radius.circular(16),
                     topRight: Radius.circular(16),
@@ -60,7 +74,7 @@ class _LeaderboardDialogState extends State<LeaderboardDialog> {
                 ),
                 child: Row(
                   children: [
-                    const SizedBox(width: 28),
+                    const SizedBox(width: 28), // Balances the close button on the right for true centering
                     const Expanded(
                       child: Text(
                         'HALL OF FAME',
@@ -80,6 +94,7 @@ class _LeaderboardDialogState extends State<LeaderboardDialog> {
                         ),
                       ),
                     ),
+                    // Close button icon
                     InkWell(
                       key: const Key('dialog_close_icon'),
                       onTap: () {
@@ -104,7 +119,7 @@ class _LeaderboardDialogState extends State<LeaderboardDialog> {
                 ),
               ),
 
-              // Segmented Tab Selector
+              // 2. Segmented Tab Selector (LEADERBOARD vs PILOT STATS)
               Container(
                 decoration: const BoxDecoration(
                   color: Color(0xFFCFB86A),
@@ -114,6 +129,7 @@ class _LeaderboardDialogState extends State<LeaderboardDialog> {
                 ),
                 child: Row(
                   children: [
+                    // Leaderboard Tab Button
                     Expanded(
                       child: InkWell(
                         onTap: () {
@@ -154,6 +170,7 @@ class _LeaderboardDialogState extends State<LeaderboardDialog> {
                         ),
                       ),
                     ),
+                    // Pilot Stats Tab Button
                     Expanded(
                       child: InkWell(
                         onTap: () {
@@ -198,14 +215,14 @@ class _LeaderboardDialogState extends State<LeaderboardDialog> {
                 ),
               ),
 
-              // Tab Views
+              // 3. Tab Body View (Scrollable list of scores or stats cards)
               Expanded(
                 child: _selectedTab == 0
                     ? _buildLeaderboardTab()
                     : _buildStatsTab(),
               ),
 
-              // Bottom Done Button
+              // 4. Bottom Dismiss Button
               Padding(
                 padding: const EdgeInsets.symmetric(vertical: 8),
                 child: ElevatedButton.icon(
@@ -244,6 +261,7 @@ class _LeaderboardDialogState extends State<LeaderboardDialog> {
     );
   }
 
+  /// Builds the scrollable list of Top 10 high scores with rank medals.
   Widget _buildLeaderboardTab() {
     if (widget.leaderboard.isEmpty) {
       return const Center(
@@ -268,19 +286,21 @@ class _LeaderboardDialogState extends State<LeaderboardDialog> {
         Color rankColor = const Color(0xFF706733);
         Widget rankWidget;
 
+        // Visual distinction for Top 3 podium ranks
         if (rank == 1) {
-          rankColor = const Color(0xFFFFB300);
+          rankColor = const Color(0xFFFFB300); // Gold
           rankWidget = const Icon(Icons.workspace_premium,
               color: Color(0xFFFFB300), size: 26);
         } else if (rank == 2) {
-          rankColor = const Color(0xFF9E9E9E);
+          rankColor = const Color(0xFF9E9E9E); // Silver
           rankWidget = const Icon(Icons.military_tech,
               color: Color(0xFF9E9E9E), size: 24);
         } else if (rank == 3) {
-          rankColor = const Color(0xFFCD7F32);
+          rankColor = const Color(0xFFCD7F32); // Bronze
           rankWidget = const Icon(Icons.military_tech,
               color: Color(0xFFCD7F32), size: 22);
         } else {
+          // Standard numbered circle badge for 4th and below
           rankWidget = Container(
             width: 22,
             height: 22,
@@ -316,8 +336,11 @@ class _LeaderboardDialogState extends State<LeaderboardDialog> {
           ),
           child: Row(
             children: [
+              // Rank badge / medal
               SizedBox(width: 28, child: Center(child: rankWidget)),
               const SizedBox(width: 8),
+
+              // Pilot Name & Title
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -343,6 +366,8 @@ class _LeaderboardDialogState extends State<LeaderboardDialog> {
                   ],
                 ),
               ),
+
+              // Score tag pill
               Container(
                 padding:
                     const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
@@ -366,20 +391,28 @@ class _LeaderboardDialogState extends State<LeaderboardDialog> {
     );
   }
 
+  /// Builds the cumulative career statistics tab.
   Widget _buildStatsTab() {
     return SingleChildScrollView(
       padding: const EdgeInsets.all(12),
       child: Column(
         children: [
+          // Best Score row
           _buildStatRow('Best High Score', '${widget.stats.bestScore}',
               Icons.emoji_events, const Color(0xFFFFB300)),
           const SizedBox(height: 8),
+
+          // Total games played
           _buildStatRow('Games Played', '${widget.stats.gamesPlayed}',
               Icons.sports_esports, const Color(0xFF2196F3)),
           const SizedBox(height: 8),
+
+          // Total flaps / taps
           _buildStatRow('Total Flaps', '${widget.stats.totalFlaps}',
               Icons.touch_app, const Color(0xFF4CAF50)),
           const SizedBox(height: 8),
+
+          // Average score per game
           _buildStatRow(
             'Average Score',
             widget.stats.averageScore.toStringAsFixed(1),
@@ -387,6 +420,8 @@ class _LeaderboardDialogState extends State<LeaderboardDialog> {
             const Color(0xFF9C27B0),
           ),
           const SizedBox(height: 12),
+
+          // Pro-pilot tip banner
           Container(
             padding: const EdgeInsets.all(10),
             decoration: BoxDecoration(
@@ -417,6 +452,7 @@ class _LeaderboardDialogState extends State<LeaderboardDialog> {
     );
   }
 
+  /// Helper widget building a consistent visual row for a career statistic card.
   Widget _buildStatRow(
       String label, String value, IconData icon, Color iconColor) {
     return Container(
