@@ -49,5 +49,5 @@ app.*.map.json
 *.app
 
 # Local user/test data
-flappy_stats.json
-flappy_best.txt
+flappy_*.json
+flappy_*.txt

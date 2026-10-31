@@ -1,9 +1,12 @@
 // Flutter Material Design library for drawing shapes, containers, and gradient borders
 import 'package:flutter/material.dart';
 
+// Game models for biome palettes
+import 'game_models.dart';
+
 /// The visual barrier obstacle widget, rendered as a high-tech Neo-Arcade Aero Pylon
 /// with a luminous energy conduit, emitter capacitor tip, and metallic chassis paneling.
-/// Designed to give the game a distinctive sci-fi aerospace identity rather than classic sewer pipes.
+/// Adapts dynamically to each of the 7 world biomes.
 class MyBarriers extends StatelessWidget {
   // Legacy size parameter supported for backward compatibility
   final double? size;
@@ -26,6 +29,9 @@ class MyBarriers extends StatelessWidget {
   // Dark chassis outline border color
   final Color? borderColor;
 
+  // Optional active biome for environmental accents
+  final WorldBiome? biome;
+
   // Constructor with sensible defaults
   const MyBarriers({
     super.key,
@@ -36,6 +42,7 @@ class MyBarriers extends StatelessWidget {
     this.primaryColor,
     this.secondaryColor,
     this.borderColor,
+    this.biome,
   });
 
   @override
@@ -178,8 +185,7 @@ class MyBarriers extends StatelessWidget {
                     count,
                     (_) => Container(
                       height: 1.5,
-                      margin: const EdgeInsets.symmetric(horizontal: 6),
-                      color: Colors.black.withValues(alpha: 0.35),
+                      color: border.withValues(alpha: 0.4),
                     ),
                   ),
                 );
@@ -190,22 +196,39 @@ class MyBarriers extends StatelessWidget {
       ),
     );
 
-    // Assemble the complete aero pylon
+    // Assemble the complete obstacle pylon inside an isolated GPU RepaintBoundary
     return RepaintBoundary(
       child: SizedBox(
         width: totalWidth,
         height: pipeHeight,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.center,
+        child: Stack(
+          alignment: Alignment.center,
           children: isBottom
               ? [
-                  capWidget,
-                  if (shaftHeight > 0) Expanded(child: shaftWidget),
+                  // Cap on top of bottom pylon
+                  Positioned(
+                    top: 0,
+                    child: capWidget,
+                  ),
+                  // Shaft beneath cap
+                  Positioned(
+                    top: capHeight,
+                    bottom: 0,
+                    child: shaftWidget,
+                  ),
                 ]
               : [
-                  if (shaftHeight > 0) Expanded(child: shaftWidget),
-                  capWidget,
+                  // Shaft above hanging cap
+                  Positioned(
+                    top: 0,
+                    bottom: capHeight,
+                    child: shaftWidget,
+                  ),
+                  // Cap at bottom of hanging pylon
+                  Positioned(
+                    bottom: 0,
+                    child: capWidget,
+                  ),
                 ],
         ),
       ),

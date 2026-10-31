@@ -1,62 +1,53 @@
-// Math library for trigonometric calculations, randomness, and min/max clamps
+// Standard math library for trigonometry, randomness, and clamps
 import 'dart:math';
 
 // Core Flutter UI and layout widgets
 import 'package:flutter/material.dart';
 
-// Provides Ticker class for screen-synchronized 60-120 FPS game loops
+// Ticker class for screen-synchronized 60-120 FPS game loops
 import 'package:flutter/scheduler.dart';
 
-// Services for hardware keyboard handling, system sound, and haptic vibration feedback
+// Hardware keyboard handling, system sounds, and haptic feedback
 import 'package:flutter/services.dart';
 
-// Central multi-channel audio manager for background music and sound effects
+// Multi-channel audio engine
 import 'audio_manager.dart';
 
 // High-tech 3D obstacle pylons
 import 'barriers.dart';
 
-// Animated flyer sprite with GPU skin color filters, wind trails, and pixel-fidelity filtering
+// Animated flyer sprite with GPU skin shaders, wings, shield bubble, and trails
 import 'bird.dart';
 
-// Hall of Fame modal dialog
+// Game models for worlds, 14 birds, quests, achievements, power-ups, and settings
+import 'game_models.dart';
+
+// Modal dialogs
 import 'leaderboard_dialog.dart';
-
-// High score and career stats data models
 import 'leaderboard_model.dart';
-
-// Pilot callsign input dialog
 import 'name_input_dialog.dart';
-
-// Procedural particle engine (shockwaves, sparkles, feathers, stars, gems, popup text, parallax mountains)
 import 'particle_effects.dart';
+import 'quests_dialog.dart';
+import 'settings_dialog.dart';
+import 'skin_shop_dialog.dart';
+import 'world_select_dialog.dart';
 
-// Cross-platform data persistence adapter (local file on mobile/desktop, localStorage on web)
+// Cross-platform persistence adapter (File I/O on mobile/desktop, localStorage on web)
 import 'score_storage.dart' as score_storage;
 
-// Dynamic environment themes (Day, Sunset, Midnight)
-import 'theme_data.dart';
-
-/// The four distinct operating states of the game engine.
+/// The distinct operating states of the Skybound game engine.
 enum GameStatus {
-  ready,    // Idle hover in the center of the sky, waiting for first tap
-  playing,  // Active flight with live physics, scrolling pylons, gems, and scoring
-  paused,   // Ticker physics suspended; paused overlay shown
-  gameOver, // Flyer crashed; falling to ground and opening score dialog
+  ready,    // Idle hover in the sky, world intro banner, waiting for first tap
+  playing,  // Active flight with live physics, scrolling obstacles, collectibles & power-ups
+  paused,   // Ticker physics suspended; pause modal shown
+  gameOver, // Flyer crashed; falling to ground and opening score results card
 }
 
-/// Represents a single obstacle column containing a top pylon, a bottom pylon, and the clearance gap between them.
+/// Represents an obstacle column pair with a clearance gap.
 class PipePair {
-  // Horizontal X coordinate in the arena
   double x;
-
-  // Height of the upper pylon hanging from the ceiling
   double topHeight;
-
-  // Vertical clearance gap opening for the bird to fly through
   double gapHeight;
-
-  // Flag ensuring points are only awarded once when passing this pylon
   bool passed;
 
   PipePair({
@@ -67,7 +58,7 @@ class PipePair {
   });
 }
 
-/// The master game screen hosting the game loop, physics engine, and user controls.
+/// Master game widget hosting the physics engine, render stack, and user controls.
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
 
@@ -77,53 +68,52 @@ class HomePage extends StatefulWidget {
 
 class _HomePageState extends State<HomePage>
     with SingleTickerProviderStateMixin {
-  // Game loop ticker synchronized directly with the hardware display's VSYNC refresh rate
+  // Screen-synchronized VSYNC game loop ticker
   late final Ticker _ticker;
   Duration _lastElapsed = Duration.zero;
 
-  // FocusNode allowing desktop and web browsers to capture physical keyboard key presses
+  // Keyboard capture focus node for desktop/web
   final FocusNode _focusNode = FocusNode();
 
-  // Current game state (starts in 'ready' mode)
+  // Current operating state (starts in 'ready' mode)
   GameStatus _status = GameStatus.ready;
 
-  // Active round score
+  // Round stats & scores
   int _score = 0;
-
-  // All-time personal best score loaded from storage
   int _bestScore = 0;
-
-  // True if the current score has surpassed the previous record
   bool _isNewHighScore = false;
-
-  // Total flaps made in the current round
   int _flapsThisGame = 0;
-
-  // Clean gate pass combo streak in current round
   int _streak = 0;
+  int _gemsThisGame = 0;
+  int _totalGems = 0;
 
-  // Audio / Sound FX toggle
+  // Sound enabled state
   bool _soundEnabled = true;
 
-  // Timestamp when Game Over was triggered (used for input debounce cooldown)
+  // Input debounce timestamp on crash
   DateTime? _gameOverTime;
 
-  // Persistent Hall of Fame entries
-  List<LeaderboardEntry> _leaderboard =
-      List.from(LeaderboardEntry.defaultLeaderboard);
+  // Active Bird Skin & World
+  String _activeSkinId = 'classic';
+  String _activeWorldId = 'sunrise_valley';
+  List<String> _unlockedSkins = ['classic'];
+  List<String> _unlockedWorlds = ['sunrise_valley'];
+
+  // Quests, Achievements, Leaderboard & Settings
+  List<DailyChallenge> _dailyChallenges = [];
+  List<WeeklyChallenge> _weeklyChallenges = [];
+  List<Achievement> _achievements = [];
+  List<LeaderboardEntry> _leaderboard = List.from(LeaderboardEntry.defaultLeaderboard);
   PlayerStats _playerStats = const PlayerStats();
   String _pilotName = 'PILOT';
+  GameSettings _settings = const GameSettings();
   bool _recordSubmittedThisRound = false;
-
-  // Theme & Skins
-  EnvironmentTheme _currentTheme = EnvironmentTheme.day;
-  BirdSkin _currentSkin = BirdSkin.classic;
 
   // Viewport dimensions
   double _arenaWidth = 400.0;
   double _skyHeight = 560.0;
 
-  // Bird physics & geometry
+  // Bird physics & dimensions
   static const double _birdVisualSize = 64.0;
   static const double _birdHitboxW = 34.0;
   static const double _birdHitboxH = 26.0;
@@ -135,27 +125,42 @@ class _HomePageState extends State<HomePage>
   double _readyHoverTime = 0.0;
   double _worldTime = 0.0;
   double _flapPulse = 1.0;
+  double _wingCycle = 0.0;
+
+  // Screen shake effect
+  double _screenShakeIntensity = 0.0;
+
+  // World intro banner timer
+  double _worldIntroTimer = 0.0;
+
+  // In-flight achievement unlock notification
+  String? _unlockedToastMessage;
+  double _toastTimer = 0.0;
 
   // Physics constants
   static const double _gravity = 980.0;
   static const double _jumpVelocity = -350.0;
   static const double _maxFallSpeed = 520.0;
-  static const double _pipeSpeed = 160.0;
+  static const double _basePipeSpeed = 160.0;
   static const double _pipeWidth = 68.0;
 
-  // Obstacles & Collectibles
+  // Active Power-Ups
+  final List<ActivePowerUp> _activePowerUps = [];
+  final List<PowerUpItem> _powerUpItems = [];
+  double _shieldInvulnerableTime = 0.0;
+
+  // Obstacles, Collectibles, and Particles
   final Random _random = Random();
   final List<PipePair> _pipes = [];
   final List<FloatingGem> _gems = [];
   final List<FloatingPopupText> _floatingTexts = [];
-  double _pipeSpacing = 240.0;
-
-  // Visual effects & particles
   final List<FlapRing> _flapRings = [];
   final List<Particle> _particles = [];
+  final List<AmbientParticle> _ambientParticles = [];
   late final List<NightStar> _stars;
+  double _pipeSpacing = 240.0;
 
-  // Decorative offsets
+  // Scrolling parallax offsets
   double _groundScroll = 0.0;
   double _cloudScroll = 0.0;
   double _mountainScroll = 0.0;
@@ -165,7 +170,7 @@ class _HomePageState extends State<HomePage>
   void initState() {
     super.initState();
     _stars = NightStar.generate(45);
-    _loadAllUserData();
+    _loadAllData();
     AudioManager.instance.init();
 
     _ticker = createTicker(_onTick);
@@ -186,7 +191,7 @@ class _HomePageState extends State<HomePage>
     super.dispose();
   }
 
-  Future<void> _loadAllUserData() async {
+  Future<void> _loadAllData() async {
     try {
       final best = await score_storage.loadBestScore();
       if (mounted) {
@@ -197,41 +202,100 @@ class _HomePageState extends State<HomePage>
     } catch (_) {}
 
     try {
+      final gems = await score_storage.loadTotalGems();
       final board = await score_storage.loadLeaderboard();
       final stats = await score_storage.loadPlayerStats();
       final name = await score_storage.loadLastPlayerName();
+      final skins = await score_storage.loadUnlockedSkins();
+      final worlds = await score_storage.loadUnlockedWorlds();
+      final skinId = await score_storage.loadActiveSkin();
+      final worldId = await score_storage.loadActiveWorld();
+      final now = DateTime.now();
+      final daily = await score_storage.loadDailyChallenges(now);
+      final weekly = await score_storage.loadWeeklyChallenges(now);
+      final achievements = await score_storage.loadAchievements();
+      final settings = await score_storage.loadGameSettings();
+
       if (mounted) {
         setState(() {
+          _totalGems = gems;
           _leaderboard = board;
           _playerStats = stats;
           _pilotName = name;
+          _unlockedSkins = skins;
+          _unlockedWorlds = worlds;
+          _activeSkinId = skinId;
+          _activeWorldId = worldId;
+          _dailyChallenges = daily;
+          _weeklyChallenges = weekly;
+          _achievements = achievements;
+          _settings = settings;
+
+          _soundEnabled = !AudioManager.instance.isMuted;
+          AudioManager.instance.setVolumes(
+            musicVolume: settings.isMusicEnabled ? settings.musicVolume : 0.0,
+            sfxVolume: settings.isSfxEnabled ? settings.sfxVolume : 0.0,
+          );
         });
       }
     } catch (_) {}
   }
 
-  Future<void> _saveBestScore(int newBest) async {
-    try {
-      await score_storage.saveBestScore(newBest);
-    } catch (_) {}
+  WorldBiomeData get _currentWorldData => WorldBiomeData.fromId(_activeWorldId);
+  BirdSkinConfig get _currentSkinConfig => BirdSkinConfig.fromStringId(_activeSkinId);
+
+  bool get _hasShield => _activePowerUps.any((p) => p.type == PowerUpType.shield);
+  bool get _isGhost => _activePowerUps.any((p) => p.type == PowerUpType.ghost);
+  bool get _isSlowMo => _activePowerUps.any((p) => p.type == PowerUpType.slowMotion);
+  bool get _isMagnet => _activePowerUps.any((p) => p.type == PowerUpType.magnet);
+  bool get _is2xMultiplier => _activePowerUps.any((p) => p.type == PowerUpType.scoreMultiplier);
+
+  void _triggerHaptic(HapticFeedbackType type) {
+    if (!_settings.isHapticsEnabled) return;
+    switch (type) {
+      case HapticFeedbackType.light:
+        HapticFeedback.lightImpact();
+        break;
+      case HapticFeedbackType.medium:
+        HapticFeedback.mediumImpact();
+        break;
+      case HapticFeedbackType.heavy:
+        HapticFeedback.heavyImpact();
+        break;
+      case HapticFeedbackType.selection:
+        HapticFeedback.selectionClick();
+        break;
+    }
   }
 
-  void _cycleTheme() {
+  void _cycleWorld() {
+    const allWorlds = WorldBiomeData.all;
+    final currentIndex = allWorlds.indexWhere((w) => w.id == _activeWorldId);
+    final nextWorld = allWorlds[(currentIndex + 1) % allWorlds.length];
+
     setState(() {
-      _currentTheme = EnvironmentTheme.values[
-          (_currentTheme.index + 1) % EnvironmentTheme.values.length];
+      _activeWorldId = nextWorld.id;
+      _worldIntroTimer = 2.2;
+      _initPipes(_skyHeight, _arenaWidth);
     });
+
     AudioManager.instance.playClick();
-    HapticFeedback.selectionClick();
+    _triggerHaptic(HapticFeedbackType.selection);
+    score_storage.saveActiveWorld(_activeWorldId);
   }
 
   void _cycleSkin() {
+    const allSkins = BirdSkinConfig.all;
+    final currentIndex = allSkins.indexWhere((s) => s.id.name == _activeSkinId);
+    final nextSkin = allSkins[(currentIndex + 1) % allSkins.length];
+
     setState(() {
-      _currentSkin =
-          BirdSkin.values[(_currentSkin.index + 1) % BirdSkin.values.length];
+      _activeSkinId = nextSkin.id.name;
     });
+
     AudioManager.instance.playClick();
-    HapticFeedback.selectionClick();
+    _triggerHaptic(HapticFeedbackType.selection);
+    score_storage.saveActiveSkin(_activeSkinId);
   }
 
   void _toggleSound() {
@@ -250,47 +314,15 @@ class _HomePageState extends State<HomePage>
     } else {
       AudioManager.instance.stopBgm();
     }
-    HapticFeedback.selectionClick();
-  }
-
-  void _togglePause() {
-    if (_status == GameStatus.playing) {
-      setState(() {
-        _status = GameStatus.paused;
-      });
-      AudioManager.instance.pauseBgm();
-      AudioManager.instance.playClick();
-      HapticFeedback.lightImpact();
-    } else if (_status == GameStatus.paused) {
-      setState(() {
-        _status = GameStatus.playing;
-        _lastElapsed = Duration.zero; // Prevent frame delta spike
-      });
-      if (_soundEnabled) {
-        AudioManager.instance.resumeBgm();
-      }
-      AudioManager.instance.playClick();
-      HapticFeedback.lightImpact();
-    }
-  }
-
-  void _openLeaderboard() {
-    AudioManager.instance.playClick();
-    HapticFeedback.selectionClick();
-    showDialog(
-      context: context,
-      barrierColor: Colors.black54,
-      builder: (context) => LeaderboardDialog(
-        leaderboard: _leaderboard,
-        stats: _playerStats,
-      ),
-    );
+    _triggerHaptic(HapticFeedbackType.selection);
   }
 
   void _initPipes(double skyH, double arenaW) {
     _pipes.clear();
     _gems.clear();
+    _powerUpItems.clear();
     _floatingTexts.clear();
+    _activePowerUps.clear();
     _pipeSpacing = (arenaW * 0.65).clamp(210.0, 280.0);
 
     for (int i = 0; i < 2; i++) {
@@ -302,20 +334,24 @@ class _HomePageState extends State<HomePage>
       _randomizePipe(pipe, skyH);
       _pipes.add(pipe);
     }
+
+    _ambientParticles.clear();
+    _ambientParticles.addAll(
+      AmbientParticle.generateForWorld(_currentWorldData.biome, arenaW, skyH),
+    );
   }
 
   void _randomizePipe(PipePair pipe, double skyH) {
     final double gap = (skyH * 0.28).clamp(130.0, 180.0);
     const double minPipe = 45.0;
-    final double available =
-        (skyH - gap - (minPipe * 2)).clamp(20.0, double.infinity);
+    final double available = (skyH - gap - (minPipe * 2)).clamp(20.0, double.infinity);
     final double top = minPipe + _random.nextDouble() * available;
 
     pipe.topHeight = top;
     pipe.gapHeight = gap;
     pipe.passed = false;
 
-    // 70% chance to spawn a bonus Sky Gem (+2 points) in the center of the opening
+    // 70% chance to spawn a Sky Gem
     if (_random.nextDouble() < 0.70) {
       _gems.add(
         FloatingGem(
@@ -325,9 +361,21 @@ class _HomePageState extends State<HomePage>
         ),
       );
     }
+
+    // 18% chance to spawn a special Power-Up Item in the flight channel
+    if (_random.nextDouble() < 0.18) {
+      const types = PowerUpType.values;
+      final type = types[_random.nextInt(types.length)];
+      _powerUpItems.add(
+        PowerUpItem(
+          x: pipe.x + (_pipeWidth / 2) + 40.0,
+          baseY: top + (gap / 2) + (_random.nextDouble() - 0.5) * 40.0,
+          type: type,
+        ),
+      );
+    }
   }
 
-  /// Hardware VSYNC Tick callback fired on every display frame refresh (60-120 FPS).
   void _onTick(Duration elapsed) {
     if (_lastElapsed == Duration.zero) {
       _lastElapsed = elapsed;
@@ -345,28 +393,52 @@ class _HomePageState extends State<HomePage>
     });
   }
 
-  /// Master game state machine updating world positions, particles, and scoring for this frame.
   void _updateGame(double dt) {
     _worldTime += dt;
+    _wingCycle = (_wingCycle + dt * 4.0) % 1.0;
 
-    // Prune expired shockwave rings, particles, and popup texts
+    if (_worldIntroTimer > 0) {
+      _worldIntroTimer -= dt;
+    }
+
+    if (_toastTimer > 0) {
+      _toastTimer -= dt;
+      if (_toastTimer <= 0) {
+        _unlockedToastMessage = null;
+      }
+    }
+
+    if (_screenShakeIntensity > 0) {
+      _screenShakeIntensity = (_screenShakeIntensity - dt * 25.0).clamp(0.0, 20.0);
+    }
+
+    if (_shieldInvulnerableTime > 0) {
+      _shieldInvulnerableTime -= dt;
+    }
+
+    // Prune particles
     _flapRings.removeWhere((ring) => !ring.update(dt));
     _particles.removeWhere((p) => !p.update(dt));
     _floatingTexts.removeWhere((t) => !t.update(dt));
 
-    // Scroll ground, clouds, and distant parallax mountains
+    for (final ap in _ambientParticles) {
+      ap.update(dt, _arenaWidth, _skyHeight);
+    }
+
+    _activePowerUps.removeWhere((p) => !p.update(dt));
+
+    final effectivePipeSpeed = _isSlowMo ? _basePipeSpeed * 0.60 : _basePipeSpeed;
+    final effectiveGravity = _isSlowMo ? _gravity * 0.70 : _gravity;
+
     if (_status != GameStatus.gameOver) {
-      _groundScroll = (_groundScroll + _pipeSpeed * dt) % 24.0;
+      _groundScroll = (_groundScroll + effectivePipeSpeed * dt) % 24.0;
       _cloudScroll = (_cloudScroll + 20.0 * dt) % 360.0;
       _mountainScroll = (_mountainScroll + 35.0 * dt) % 720.0;
     }
 
-    // Decay the score text pop animation smoothly back to normal scale 1.0
     if (_scoreScale > 1.0) {
       _scoreScale = (_scoreScale - dt * 2.0).clamp(1.0, 1.4);
     }
-
-    // Decay flap squash & stretch elasticity
     if (_flapPulse > 1.0) {
       _flapPulse = (_flapPulse - dt * 2.5).clamp(1.0, 1.25);
     }
@@ -377,32 +449,30 @@ class _HomePageState extends State<HomePage>
         _birdY = (_skyHeight * 0.44) + sin(_readyHoverTime * 5.0) * 8.0;
         _rotation = sin(_readyHoverTime * 5.0) * 0.08;
         _velocity = 0.0;
-        // Subtle resting wing flutter on idle hover
         _flapPulse = 1.0 + (sin(_readyHoverTime * 10.0).abs() * 0.05);
         break;
 
       case GameStatus.playing:
-        // Flyer physics
-        _velocity += _gravity * dt;
+        _velocity += effectiveGravity * dt;
         if (_velocity > _maxFallSpeed) {
           _velocity = _maxFallSpeed;
         }
         _birdY += _velocity * dt;
 
-        // Smooth rotation
         if (_velocity < -50.0) {
           _rotation = -0.42;
         } else {
           _rotation = (_rotation + 3.2 * dt).clamp(-0.42, 1.25);
         }
 
-        // Pylon obstacle movement & recycling
+        // Pylons
         for (final pipe in _pipes) {
-          pipe.x -= _pipeSpeed * dt;
+          pipe.x -= effectivePipeSpeed * dt;
 
           if (!pipe.passed && (_birdX > pipe.x + (_pipeWidth / 2))) {
             pipe.passed = true;
-            _score++;
+            final pts = _is2xMultiplier ? 2 : 1;
+            _score += pts;
             _streak++;
             _scoreScale = 1.35;
 
@@ -410,42 +480,16 @@ class _HomePageState extends State<HomePage>
               AudioManager.instance.playScore();
               SystemSound.play(SystemSoundType.click);
             }
-            HapticFeedback.lightImpact();
+            _triggerHaptic(HapticFeedbackType.light);
+            _burstSparkles(_birdX + 20, _birdY, _currentSkinConfig.particleColor);
 
-            // Burst score sparkle particles
-            _burstSparkles(_birdX + 20, _birdY, const Color(0xFFFFD700));
-
-            // Combo streak milestones
-            if (_streak == 3) {
-              AudioManager.instance.playCombo();
-              _floatingTexts.add(FloatingPopupText(
-                x: _birdX + 30,
-                y: _birdY - 26,
-                text: 'x3 STREAK!',
-                color: const Color(0xFF00E5FF),
-              ));
-            } else if (_streak == 5) {
-              AudioManager.instance.playCombo();
-              _floatingTexts.add(FloatingPopupText(
-                x: _birdX + 30,
-                y: _birdY - 26,
-                text: 'PERFECT!',
-                color: const Color(0xFFFF9100),
-              ));
-            } else if (_streak >= 10 && _streak % 5 == 0) {
-              AudioManager.instance.playCombo();
-              _floatingTexts.add(FloatingPopupText(
-                x: _birdX + 30,
-                y: _birdY - 26,
-                text: 'UNSTOPPABLE!',
-                color: const Color(0xFFFFD700),
-              ));
-            }
+            _checkComboMilestones();
+            _updateMissionProgress(scoreAdd: pts, streakVal: _streak);
 
             if (_score > _bestScore) {
               _bestScore = _score;
               _isNewHighScore = true;
-              _saveBestScore(_bestScore);
+              score_storage.saveBestScore(_bestScore);
             }
           }
 
@@ -456,42 +500,77 @@ class _HomePageState extends State<HomePage>
           }
         }
 
-        // Sky Gem movement & collection check
+        // Gems
         for (final gem in _gems) {
-          gem.x -= _pipeSpeed * dt;
+          gem.x -= effectivePipeSpeed * dt;
+
+          if (_isMagnet && !gem.collected) {
+            final dx = _birdX - gem.x;
+            final dy = _birdY - gem.y;
+            final dist = sqrt(dx * dx + dy * dy);
+            if (dist < 180.0) {
+              gem.x += (dx / dist) * 240.0 * dt;
+              gem.y += (dy / dist) * 240.0 * dt;
+            }
+          }
+
           gem.update(dt);
 
           if (!gem.collected) {
             final double dx = (gem.x - _birdX).abs();
             final double dy = (gem.y - _birdY).abs();
-            if (dx < 28.0 && dy < 28.0) {
+            if (dx < 30.0 && dy < 30.0) {
               gem.collected = true;
-              _score += gem.value;
+              final gemVal = _is2xMultiplier ? gem.value * 2 : gem.value;
+              _score += gemVal;
+              _gemsThisGame += gemVal;
+              _totalGems += gemVal;
               _scoreScale = 1.38;
 
               if (_soundEnabled) {
                 AudioManager.instance.playGem();
                 SystemSound.play(SystemSoundType.click);
               }
-              HapticFeedback.mediumImpact();
+              _triggerHaptic(HapticFeedbackType.medium);
               _burstSparkles(gem.x, gem.y, const Color(0xFFFFD700));
 
-              _floatingTexts.add(FloatingPopupText(
-                x: gem.x,
-                y: gem.y - 14,
-                text: '+${gem.value} GEM!',
-                color: const Color(0xFFFFD54F),
-              ));
+              _floatingTexts.add(
+                FloatingPopupText(
+                  x: gem.x,
+                  y: gem.y - 14,
+                  text: '+$gemVal GEM!',
+                  color: const Color(0xFFFFD54F),
+                ),
+              );
+
+              score_storage.saveTotalGems(_totalGems);
+              _updateMissionProgress(gemsAdd: gemVal);
 
               if (_score > _bestScore) {
                 _bestScore = _score;
                 _isNewHighScore = true;
-                _saveBestScore(_bestScore);
+                score_storage.saveBestScore(_bestScore);
               }
             }
           }
         }
         _gems.removeWhere((g) => g.x < -40.0 || (g.collected && g.hoverTime > 0.35));
+
+        // Power-Ups
+        for (final pup in _powerUpItems) {
+          pup.x -= effectivePipeSpeed * dt;
+          pup.update(dt);
+
+          if (!pup.collected) {
+            final double dx = (pup.x - _birdX).abs();
+            final double dy = (pup.y - _birdY).abs();
+            if (dx < 32.0 && dy < 32.0) {
+              pup.collected = true;
+              _activatePowerUp(pup.type);
+            }
+          }
+        }
+        _powerUpItems.removeWhere((p) => p.x < -40.0 || p.collected);
 
         _checkCollisions();
         break;
@@ -510,29 +589,86 @@ class _HomePageState extends State<HomePage>
     }
   }
 
-  /// 2D Axis-Aligned Bounding Box (AABB) collision detection checking bounds and pylons.
+  void _activatePowerUp(PowerUpType type) {
+    final data = PowerUpData.of(type);
+    if (_soundEnabled) {
+      AudioManager.instance.playPowerUp();
+    }
+    _triggerHaptic(HapticFeedbackType.heavy);
+    _screenShakeIntensity = 6.0;
+
+    _activePowerUps.removeWhere((p) => p.type == type);
+    _activePowerUps.add(
+      ActivePowerUp(
+        type: type,
+        remainingSeconds: data.durationSeconds,
+        totalSeconds: data.durationSeconds,
+      ),
+    );
+
+    _floatingTexts.add(
+      FloatingPopupText(
+        x: _birdX + 20,
+        y: _birdY - 28,
+        text: data.label,
+        color: data.color,
+      ),
+    );
+
+    _burstSparkles(_birdX, _birdY, data.color);
+    _updateMissionProgress(powerUpAdd: 1);
+  }
+
+  void _checkComboMilestones() {
+    if (_streak == 3) {
+      if (_soundEnabled) AudioManager.instance.playCombo();
+      _floatingTexts.add(FloatingPopupText(
+        x: _birdX + 30,
+        y: _birdY - 26,
+        text: 'x3 STREAK!',
+        color: const Color(0xFF00E5FF),
+      ));
+    } else if (_streak == 5) {
+      if (_soundEnabled) AudioManager.instance.playCombo();
+      _floatingTexts.add(FloatingPopupText(
+        x: _birdX + 30,
+        y: _birdY - 26,
+        text: 'PERFECT!',
+        color: const Color(0xFFFF9100),
+      ));
+    } else if (_streak >= 10 && _streak % 5 == 0) {
+      if (_soundEnabled) AudioManager.instance.playCombo();
+      _floatingTexts.add(FloatingPopupText(
+        x: _birdX + 30,
+        y: _birdY - 26,
+        text: 'UNSTOPPABLE!',
+        color: const Color(0xFFFFD700),
+      ));
+    }
+  }
+
   void _checkCollisions() {
+    if (_shieldInvulnerableTime > 0) return;
+
     final double birdLeft = _birdX - (_birdHitboxW / 2);
     final double birdRight = _birdX + (_birdHitboxW / 2);
     final double birdTop = _birdY - (_birdHitboxH / 2);
     final double birdBottom = _birdY + (_birdHitboxH / 2);
 
-    // Ceiling collision check
     if (birdTop <= 0) {
-      _triggerGameOver();
+      _handleCollisionImpact();
       return;
     }
 
-    // Ground collision check
     if (birdBottom >= _skyHeight) {
       _birdY = _skyHeight - (_birdHitboxH / 2);
-      _triggerGameOver();
+      _handleCollisionImpact();
       return;
     }
 
-    // Pylon obstacle collision check
+    if (_isGhost) return;
+
     for (final pipe in _pipes) {
-      // Inset pylon hitbox slightly by 2px for forgiving, polished arcade gameplay
       final double pipeLeft = pipe.x + 2.0;
       final double pipeRight = pipe.x + _pipeWidth - 2.0;
 
@@ -541,11 +677,36 @@ class _HomePageState extends State<HomePage>
         final double bottomPipeTop = pipe.topHeight + pipe.gapHeight;
 
         if (birdTop < topPipeBottom || birdBottom > bottomPipeTop) {
-          _triggerGameOver();
+          _handleCollisionImpact();
           return;
         }
       }
     }
+  }
+
+  void _handleCollisionImpact() {
+    if (_hasShield) {
+      _activePowerUps.removeWhere((p) => p.type == PowerUpType.shield);
+      _shieldInvulnerableTime = 1.2;
+      _screenShakeIntensity = 10.0;
+      if (_soundEnabled) AudioManager.instance.playShield();
+      _triggerHaptic(HapticFeedbackType.heavy);
+      _burstSparkles(_birdX, _birdY, const Color(0xFF00E5FF));
+
+      _floatingTexts.add(
+        FloatingPopupText(
+          x: _birdX,
+          y: _birdY - 20,
+          text: 'SHIELD DEFLECTED!',
+          color: const Color(0xFF00E5FF),
+        ),
+      );
+
+      _velocity = -220.0;
+      return;
+    }
+
+    _triggerGameOver();
   }
 
   void _triggerGameOver() {
@@ -553,6 +714,7 @@ class _HomePageState extends State<HomePage>
 
     _gameOverTime = DateTime.now();
     _streak = 0;
+    _screenShakeIntensity = 12.0;
 
     AudioManager.instance.stopBgm();
     if (_soundEnabled) {
@@ -564,12 +726,10 @@ class _HomePageState extends State<HomePage>
       });
       SystemSound.play(SystemSoundType.alert);
     }
-    HapticFeedback.mediumImpact();
 
-    // Burst collision particles
+    _triggerHaptic(HapticFeedbackType.heavy);
     _burstSparkles(_birdX, _birdY, const Color(0xFFFF5252));
 
-    // Update cumulative player stats
     final newStats = _playerStats.copyWith(
       gamesPlayed: _playerStats.gamesPlayed + 1,
       totalFlaps: _playerStats.totalFlaps + _flapsThisGame,
@@ -585,7 +745,6 @@ class _HomePageState extends State<HomePage>
       _recordSubmittedThisRound = false;
     });
 
-    // Check if score qualifies for Hall of Fame
     if (_score > 0 && _isHighScoreQualified(_score)) {
       Future.delayed(const Duration(milliseconds: 600), () {
         if (mounted && _status == GameStatus.gameOver) {
@@ -621,13 +780,11 @@ class _HomePageState extends State<HomePage>
       score: _score,
       date: 'Today',
       medal: medal,
-      skin: _currentSkin.name,
+      skin: _activeSkinId,
     );
 
     final updated = List<LeaderboardEntry>.from(_leaderboard)..add(entry);
     updated.sort((a, b) => b.score.compareTo(a.score));
-
-    // Keep top 10
     final trimmed = updated.take(10).toList();
 
     setState(() {
@@ -642,7 +799,7 @@ class _HomePageState extends State<HomePage>
     if (_soundEnabled) {
       AudioManager.instance.playCombo();
     }
-    HapticFeedback.heavyImpact();
+    _triggerHaptic(HapticFeedbackType.heavy);
     _burstSparkles(_birdX, _birdY, const Color(0xFFFFD700));
   }
 
@@ -659,14 +816,18 @@ class _HomePageState extends State<HomePage>
     setState(() {
       _velocity = _jumpVelocity;
       _rotation = -0.42;
-      _flapPulse = 1.14; // Elastic squash & stretch jump impulse
+      _flapPulse = 1.14;
     });
 
-    // Trigger visual flap ring shockwave
-    _flapRings.add(FlapRing(x: _birdX, y: _birdY));
+    _flapRings.add(
+      FlapRing(
+        x: _birdX,
+        y: _birdY,
+        color: _currentSkinConfig.particleColor,
+      ),
+    );
 
-    // Burst feather particles
-    final skinData = BirdSkinData.fromSkin(_currentSkin);
+    final skin = _currentSkinConfig;
     for (int i = 0; i < 5; i++) {
       final angle = pi * 0.5 + (_random.nextDouble() - 0.5) * 1.2;
       final speed = 60.0 + _random.nextDouble() * 120.0;
@@ -677,7 +838,8 @@ class _HomePageState extends State<HomePage>
           vx: cos(angle) * speed,
           vy: sin(angle) * speed,
           size: 2.5 + _random.nextDouble() * 2.5,
-          color: skinData.particleColor,
+          color: skin.particleColor,
+          trailType: skin.trailType,
         ),
       );
     }
@@ -686,7 +848,8 @@ class _HomePageState extends State<HomePage>
       AudioManager.instance.playFlap();
       SystemSound.play(SystemSoundType.click);
     }
-    HapticFeedback.selectionClick();
+    _triggerHaptic(HapticFeedbackType.selection);
+    _updateMissionProgress(flapsAdd: 1);
   }
 
   void _burstSparkles(double x, double y, Color color) {
@@ -706,6 +869,59 @@ class _HomePageState extends State<HomePage>
     }
   }
 
+  void _updateMissionProgress({
+    int scoreAdd = 0,
+    int gemsAdd = 0,
+    int flapsAdd = 0,
+    int powerUpAdd = 0,
+    int streakVal = 0,
+  }) {
+    for (final q in _dailyChallenges) {
+      if (q.isCompleted) continue;
+      if (q.id.contains('score')) q.currentProgress += scoreAdd;
+      if (q.id.contains('gems')) q.currentProgress += gemsAdd;
+      if (q.id.contains('flaps')) q.currentProgress += flapsAdd;
+      if (q.id.contains('powerup')) q.currentProgress += powerUpAdd;
+      if (q.id.contains('combo') && streakVal >= q.target) {
+        q.currentProgress = q.target;
+      }
+    }
+
+    for (final w in _weeklyChallenges) {
+      if (w.isCompleted) continue;
+      if (w.id.contains('points')) w.currentProgress += scoreAdd;
+      if (w.id.contains('gems')) w.currentProgress += gemsAdd;
+      if (w.id.contains('flaps')) w.currentProgress += flapsAdd;
+    }
+
+    for (final a in _achievements) {
+      if (a.isUnlocked) continue;
+
+      if (a.id == 'first_flight' && flapsAdd > 0) a.currentProgress = 1;
+      if (a.id == 'sky_explorer' && _score >= 20) a.currentProgress = 20;
+      if (a.id == 'cloud_veteran' && _score >= 50) a.currentProgress = 50;
+      if (a.id.contains('gem_collector')) a.currentProgress += gemsAdd;
+      if (a.id == 'powerup_junkie') a.currentProgress += powerUpAdd;
+      if (a.id == 'combo_streak_5' && streakVal >= 5) a.currentProgress = 5;
+      if (a.id == 'combo_streak_10' && streakVal >= 10) a.currentProgress = 10;
+      if (a.id == 'combo_streak_15' && streakVal >= 15) a.currentProgress = 15;
+
+      if (a.progressRatio >= 1.0 && !a.isUnlocked) {
+        a.isUnlocked = true;
+        _showAchievementToast(a);
+      }
+    }
+  }
+
+  void _showAchievementToast(Achievement achievement) {
+    if (_soundEnabled) AudioManager.instance.playUnlock();
+    _triggerHaptic(HapticFeedbackType.heavy);
+    setState(() {
+      _unlockedToastMessage = '🏆 UNLOCKED: ${achievement.title} (+${achievement.rewardGems} Gems)';
+      _toastTimer = 3.5;
+    });
+  }
+
   void _handleUserInput() {
     switch (_status) {
       case GameStatus.ready:
@@ -717,14 +933,16 @@ class _HomePageState extends State<HomePage>
         }
         _jump();
         break;
+
       case GameStatus.playing:
         _jump();
         break;
+
       case GameStatus.paused:
         _togglePause();
         break;
+
       case GameStatus.gameOver:
-        // Debounce: prevent rapid collision taps from instantly dismissing the score screen
         if (_gameOverTime != null &&
             DateTime.now().difference(_gameOverTime!).inMilliseconds < 450) {
           return;
@@ -742,6 +960,7 @@ class _HomePageState extends State<HomePage>
       _score = 0;
       _streak = 0;
       _flapsThisGame = 0;
+      _gemsThisGame = 0;
       _isNewHighScore = false;
       _velocity = 0.0;
       _rotation = 0.0;
@@ -749,17 +968,139 @@ class _HomePageState extends State<HomePage>
       _gameOverTime = null;
       _flapPulse = 1.0;
       _birdY = _skyHeight * 0.44;
+      _worldIntroTimer = 0.0;
       _flapRings.clear();
       _particles.clear();
       _gems.clear();
+      _powerUpItems.clear();
+      _activePowerUps.clear();
       _floatingTexts.clear();
       _initPipes(_skyHeight, _arenaWidth);
     });
   }
 
+  void _togglePause() {
+    if (_status == GameStatus.playing) {
+      setState(() {
+        _status = GameStatus.paused;
+      });
+      AudioManager.instance.pauseBgm();
+      AudioManager.instance.playClick();
+      _triggerHaptic(HapticFeedbackType.light);
+    } else if (_status == GameStatus.paused) {
+      setState(() {
+        _status = GameStatus.playing;
+        _lastElapsed = Duration.zero;
+      });
+      if (_soundEnabled) {
+        AudioManager.instance.resumeBgm();
+      }
+      AudioManager.instance.playClick();
+      _triggerHaptic(HapticFeedbackType.light);
+    }
+  }
+
+  // Dialog openers
+  void _openWorldsDialog() {
+    AudioManager.instance.playClick();
+    _triggerHaptic(HapticFeedbackType.selection);
+    showDialog(
+      context: context,
+      builder: (ctx) => WorldSelectDialog(
+        unlockedWorlds: _unlockedWorlds,
+        activeWorldId: _activeWorldId,
+        totalGems: _totalGems,
+        bestScore: _bestScore,
+        onWorldChanged: (newWorldId, newGems, newUnlocked) {
+          setState(() {
+            _activeWorldId = newWorldId;
+            _totalGems = newGems;
+            _unlockedWorlds = newUnlocked;
+            _worldIntroTimer = 2.5;
+            _initPipes(_skyHeight, _arenaWidth);
+          });
+        },
+      ),
+    );
+  }
+
+  void _openAviaryDialog() {
+    AudioManager.instance.playClick();
+    _triggerHaptic(HapticFeedbackType.selection);
+    showDialog(
+      context: context,
+      builder: (ctx) => SkinShopDialog(
+        unlockedSkins: _unlockedSkins,
+        activeSkinId: _activeSkinId,
+        totalGems: _totalGems,
+        onSkinChanged: (newSkinId, newGems, newUnlocked) {
+          setState(() {
+            _activeSkinId = newSkinId;
+            _totalGems = newGems;
+            _unlockedSkins = newUnlocked;
+          });
+        },
+      ),
+    );
+  }
+
+  void _openQuestsDialog() {
+    AudioManager.instance.playClick();
+    _triggerHaptic(HapticFeedbackType.selection);
+    showDialog(
+      context: context,
+      builder: (ctx) => QuestsDialog(
+        dailyChallenges: _dailyChallenges,
+        weeklyChallenges: _weeklyChallenges,
+        achievements: _achievements,
+        totalGems: _totalGems,
+        onGemsUpdated: (newGems, daily, weekly, achievements) {
+          setState(() {
+            _totalGems = newGems;
+            _dailyChallenges = daily;
+            _weeklyChallenges = weekly;
+            _achievements = achievements;
+          });
+        },
+      ),
+    );
+  }
+
+  void _openLeaderboard() {
+    AudioManager.instance.playClick();
+    _triggerHaptic(HapticFeedbackType.selection);
+    showDialog(
+      context: context,
+      barrierColor: Colors.black54,
+      builder: (context) => LeaderboardDialog(
+        leaderboard: _leaderboard,
+        stats: _playerStats,
+      ),
+    );
+  }
+
+  void _openSettingsDialog() {
+    AudioManager.instance.playClick();
+    _triggerHaptic(HapticFeedbackType.selection);
+    showDialog(
+      context: context,
+      builder: (ctx) => SettingsDialog(
+        settings: _settings,
+        pilotName: _pilotName,
+        onSettingsSaved: (newSettings, newName) {
+          setState(() {
+            _settings = newSettings;
+            _pilotName = newName;
+          });
+        },
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
-    final themeData = EnvironmentThemeData.fromTheme(_currentTheme);
+    final worldData = _currentWorldData;
+    final skinConfig = _currentSkinConfig;
 
     return Scaffold(
       backgroundColor: const Color(0xFF14181D),
@@ -778,11 +1119,14 @@ class _HomePageState extends State<HomePage>
                 key == LogicalKeyboardKey.escape) {
               _togglePause();
               return KeyEventResult.handled;
+            } else if (key == LogicalKeyboardKey.keyO) {
+              _openSettingsDialog();
+              return KeyEventResult.handled;
             } else if (key == LogicalKeyboardKey.keyL) {
               _openLeaderboard();
               return KeyEventResult.handled;
             } else if (key == LogicalKeyboardKey.keyT) {
-              _cycleTheme();
+              _cycleWorld();
               return KeyEventResult.handled;
             } else if (key == LogicalKeyboardKey.keyS) {
               _cycleSkin();
@@ -811,13 +1155,10 @@ class _HomePageState extends State<HomePage>
 
             final bool isLargeScreen = availableWidth > 520.0;
             final double arenaW = isLargeScreen ? 420.0 : availableWidth;
-
-            // Maintain authentic mobile/arcade aspect ratio on desktop/tablets without stretching infinitely
             final double arenaH = isLargeScreen
                 ? min(availableHeight - 32.0, max(580.0, arenaW * 1.78))
                 : availableHeight;
 
-            // Ground height adapts: scales proportionally and includes safe area bottom padding
             final double groundH =
                 (arenaH * 0.16).clamp(70.0, 130.0) + (isLargeScreen ? 0.0 : bottomPadding);
             final double skyH = arenaH - groundH;
@@ -833,219 +1174,270 @@ class _HomePageState extends State<HomePage>
               }
             }
 
+            final double shakeOffsetX = _screenShakeIntensity > 0
+                ? (_random.nextDouble() - 0.5) * _screenShakeIntensity
+                : 0.0;
+            final double shakeOffsetY = _screenShakeIntensity > 0
+                ? (_random.nextDouble() - 0.5) * _screenShakeIntensity
+                : 0.0;
+
             return Container(
               color: const Color(0xFF14181D),
               child: Center(
-                child: Container(
-                  width: arenaW,
-                  height: arenaH,
-                  clipBehavior: Clip.hardEdge,
-                  decoration: BoxDecoration(
-                    color: Colors.black,
-                    borderRadius:
-                        BorderRadius.circular(isLargeScreen ? 20.0 : 0.0),
-                    border: isLargeScreen
-                        ? Border.all(
-                            color: Colors.white.withValues(alpha: 0.12),
-                            width: 2.0,
-                          )
-                        : null,
-                    boxShadow: isLargeScreen
-                        ? [
-                            BoxShadow(
-                              color: Colors.black.withValues(alpha: 0.7),
-                              blurRadius: 36,
-                              spreadRadius: 6,
-                              offset: const Offset(0, 14),
-                            ),
-                            BoxShadow(
-                              color: themeData.pipePrimary.withValues(alpha: 0.15),
-                              blurRadius: 20,
-                              spreadRadius: 1,
-                            ),
-                          ]
-                        : null,
-                  ),
-                  child: GestureDetector(
-                    behavior: HitTestBehavior.opaque,
-                    onTap: _handleUserInput,
-                    child: Stack(
-                      children: [
-                        // 1. Sky area with gradient, stars, parallax mountains, and scrolling clouds
-                        Positioned(
-                          top: 0,
-                          left: 0,
-                          right: 0,
-                          height: skyH,
-                          child: RepaintBoundary(
-                            child: _buildSky(themeData),
-                          ),
-                        ),
-
-                        // 2. Obstacle Aero Pylons (Caps extend symmetrically by 5px on left and right)
-                        for (final pipe in _pipes) ...[
-                          Positioned(
-                            left: pipe.x - 5.0,
-                            top: 0,
-                            child: MyBarriers(
-                              width: _pipeWidth,
-                              height: pipe.topHeight,
-                              isBottom: false,
-                              primaryColor: themeData.pipePrimary,
-                              secondaryColor: themeData.pipeSecondary,
-                              borderColor: themeData.pipeBorder,
-                            ),
-                          ),
-                          Positioned(
-                            left: pipe.x - 5.0,
-                            top: pipe.topHeight + pipe.gapHeight,
-                            child: MyBarriers(
-                              width: _pipeWidth,
-                              height: skyH - (pipe.topHeight + pipe.gapHeight),
-                              isBottom: true,
-                              primaryColor: themeData.pipePrimary,
-                              secondaryColor: themeData.pipeSecondary,
-                              borderColor: themeData.pipeBorder,
-                            ),
-                          ),
-                        ],
-
-                        // 3. Particles, shockwaves, floating sky gems, and combo text popups
-                        Positioned.fill(
-                          child: RepaintBoundary(
-                            child: CustomPaint(
-                              painter: ParticlePainter(
-                                rings: _flapRings,
-                                particles: _particles,
-                                gems: _gems,
-                                floatingTexts: _floatingTexts,
+                child: Transform.translate(
+                  offset: Offset(shakeOffsetX, shakeOffsetY),
+                  child: Container(
+                    width: arenaW,
+                    height: arenaH,
+                    clipBehavior: Clip.hardEdge,
+                    decoration: BoxDecoration(
+                      color: Colors.black,
+                      borderRadius: BorderRadius.circular(isLargeScreen ? 20.0 : 0.0),
+                      border: isLargeScreen
+                          ? Border.all(
+                              color: Colors.white.withValues(alpha: 0.12),
+                              width: 2.0,
+                            )
+                          : null,
+                      boxShadow: isLargeScreen
+                          ? [
+                              BoxShadow(
+                                color: Colors.black.withValues(alpha: 0.7),
+                                blurRadius: 36,
+                                spreadRadius: 6,
+                                offset: const Offset(0, 14),
                               ),
-                            ),
-                          ),
-                        ),
-
-                        // 4. Flyer character with aerodynamic wind jetstream & skin shaders
-                        Positioned(
-                          left: _birdX - (_birdVisualSize / 2),
-                          top: _birdY - (_birdVisualSize / 2),
-                          child: MyBird(
-                            rotation: _rotation,
-                            width: _birdVisualSize,
-                            height: _birdVisualSize,
-                            skin: _currentSkin,
-                            flapPulse: _flapPulse,
-                          ),
-                        ),
-
-                        // 5. Ground with stepped teeth & textured scrolling soil
-                        Positioned(
-                          bottom: 0,
-                          left: 0,
-                          right: 0,
-                          height: groundH,
-                          child: RepaintBoundary(
-                            child: _buildGround(
-                              arenaW,
-                              groundH,
-                              themeData,
-                              bottomPadding:
-                                  isLargeScreen ? 0.0 : bottomPadding,
-                            ),
-                          ),
-                        ),
-
-                        // 6. In-Game Live Score HUD & Streak Counter
-                        if (_status == GameStatus.playing ||
-                            _status == GameStatus.paused)
+                              BoxShadow(
+                                color: worldData.pipePrimary.withValues(alpha: 0.2),
+                                blurRadius: 20,
+                                spreadRadius: 1,
+                              ),
+                            ]
+                          : null,
+                    ),
+                    child: GestureDetector(
+                      behavior: HitTestBehavior.opaque,
+                      onTap: _handleUserInput,
+                      child: Stack(
+                        children: [
+                          // 1. Dynamic World Sky & Parallax Landscape
                           Positioned(
-                            top: isLargeScreen
-                                ? 60
-                                : max(58.0, topPadding + 46.0),
+                            top: 0,
                             left: 0,
                             right: 0,
-                            child: Center(
-                              child: Column(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  Transform.scale(
-                                    scale: _scoreScale,
-                                    child: Text(
-                                      '$_score',
-                                      style: const TextStyle(
-                                        fontSize: 52,
-                                        fontWeight: FontWeight.w900,
-                                        letterSpacing: 2,
-                                        color: Colors.white,
-                                        shadows: [
-                                          Shadow(offset: Offset(-2, -2), color: Colors.black),
-                                          Shadow(offset: Offset(2, -2), color: Colors.black),
-                                          Shadow(offset: Offset(2, 2), color: Colors.black),
-                                          Shadow(offset: Offset(-2, 2), color: Colors.black),
-                                          Shadow(offset: Offset(0, -2.5), color: Colors.black),
-                                          Shadow(offset: Offset(0, 2.5), color: Colors.black),
-                                          Shadow(offset: Offset(-2.5, 0), color: Colors.black),
-                                          Shadow(offset: Offset(2.5, 0), color: Colors.black),
-                                          Shadow(offset: Offset(0, 4), blurRadius: 6, color: Colors.black45),
-                                        ],
-                                      ),
-                                    ),
-                                  ),
-                                  if (_streak > 1) ...[
-                                    const SizedBox(height: 4),
-                                    Container(
-                                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
-                                      decoration: BoxDecoration(
-                                        color: Colors.black.withValues(alpha: 0.65),
-                                        borderRadius: BorderRadius.circular(12),
-                                        border: Border.all(
-                                          color: const Color(0xFFFFD54F).withValues(alpha: 0.8),
-                                          width: 1.2,
-                                        ),
-                                      ),
-                                      child: Row(
-                                        mainAxisSize: MainAxisSize.min,
-                                        children: [
-                                          const Icon(Icons.bolt_rounded, color: Color(0xFFFFD54F), size: 14),
-                                          const SizedBox(width: 4),
-                                          Text(
-                                            'STREAK: $_streak',
-                                            style: const TextStyle(
-                                              fontSize: 11,
-                                              fontWeight: FontWeight.w900,
-                                              color: Color(0xFFFFD54F),
-                                              letterSpacing: 1.0,
-                                            ),
-                                          ),
-                                        ],
-                                      ),
-                                    ),
-                                  ],
-                                ],
+                            height: skyH,
+                            child: RepaintBoundary(
+                              child: _buildSky(worldData),
+                            ),
+                          ),
+
+                          // 2. Obstacle Aero Pylons
+                          for (final pipe in _pipes) ...[
+                            Positioned(
+                              left: pipe.x - 5.0,
+                              top: 0,
+                              child: MyBarriers(
+                                width: _pipeWidth,
+                                height: pipe.topHeight,
+                                isBottom: false,
+                                primaryColor: worldData.pipePrimary,
+                                secondaryColor: worldData.pipeSecondary,
+                                borderColor: worldData.pipeBorder,
+                                biome: worldData.biome,
+                              ),
+                            ),
+                            Positioned(
+                              left: pipe.x - 5.0,
+                              top: pipe.topHeight + pipe.gapHeight,
+                              child: MyBarriers(
+                                width: _pipeWidth,
+                                height: skyH - (pipe.topHeight + pipe.gapHeight),
+                                isBottom: true,
+                                primaryColor: worldData.pipePrimary,
+                                secondaryColor: worldData.pipeSecondary,
+                                borderColor: worldData.pipeBorder,
+                                biome: worldData.biome,
+                              ),
+                            ),
+                          ],
+
+                          // 3. Particles, Gems, Power-Ups, and Ambient Sparkles
+                          Positioned.fill(
+                            child: RepaintBoundary(
+                              child: CustomPaint(
+                                painter: ParticlePainter(
+                                  rings: _flapRings,
+                                  particles: _particles,
+                                  gems: _gems,
+                                  powerUps: _powerUpItems,
+                                  ambientParticles: _ambientParticles,
+                                  floatingTexts: _floatingTexts,
+                                ),
                               ),
                             ),
                           ),
 
-                        // 7. Ready prompt overlay
-                        if (_status == GameStatus.ready) _buildReadyOverlay(),
+                          // 4. Legendary Flyer
+                          Positioned(
+                            left: _birdX - (_birdVisualSize / 2),
+                            top: _birdY - (_birdVisualSize / 2),
+                            child: MyBird(
+                              rotation: _rotation,
+                              width: _birdVisualSize,
+                              height: _birdVisualSize,
+                              skinConfig: skinConfig,
+                              flapPulse: _flapPulse,
+                              hasShield: _hasShield,
+                              isGhost: _isGhost,
+                              wingCycle: _wingCycle,
+                            ),
+                          ),
 
-                        // 8. Paused overlay
-                        if (_status == GameStatus.paused) _buildPausedOverlay(),
+                          // 5. World Ground
+                          Positioned(
+                            bottom: 0,
+                            left: 0,
+                            right: 0,
+                            height: groundH,
+                            child: RepaintBoundary(
+                              child: _buildGround(
+                                arenaW,
+                                groundH,
+                                worldData,
+                                bottomPadding: isLargeScreen ? 0.0 : bottomPadding,
+                              ),
+                            ),
+                          ),
 
-                        // 9. Game over dialog overlay
-                        if (_status == GameStatus.gameOver)
-                          _buildGameOverOverlay(),
+                          // 6. In-Game Live Score HUD & Power-Up Counters
+                          if (_status == GameStatus.playing ||
+                              _status == GameStatus.paused)
+                            Positioned(
+                              top: isLargeScreen ? 60 : max(58.0, topPadding + 46.0),
+                              left: 0,
+                              right: 0,
+                              child: Center(
+                                child: Column(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Transform.scale(
+                                      scale: _scoreScale,
+                                      child: Text(
+                                        '$_score',
+                                        style: const TextStyle(
+                                          fontSize: 52,
+                                          fontWeight: FontWeight.w900,
+                                          letterSpacing: 2,
+                                          color: Colors.white,
+                                          shadows: [
+                                            Shadow(offset: Offset(-2, -2), color: Colors.black),
+                                            Shadow(offset: Offset(2, -2), color: Colors.black),
+                                            Shadow(offset: Offset(2, 2), color: Colors.black),
+                                            Shadow(offset: Offset(-2, 2), color: Colors.black),
+                                            Shadow(offset: Offset(0, 4), blurRadius: 6, color: Colors.black45),
+                                          ],
+                                        ),
+                                      ),
+                                    ),
+                                    if (_streak > 1) ...[
+                                      const SizedBox(height: 4),
+                                      Container(
+                                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
+                                        decoration: BoxDecoration(
+                                          color: Colors.black.withValues(alpha: 0.65),
+                                          borderRadius: BorderRadius.circular(12),
+                                          border: Border.all(
+                                            color: const Color(0xFFFFD54F),
+                                            width: 1.2,
+                                          ),
+                                        ),
+                                        child: Row(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            const Icon(Icons.bolt_rounded, color: Color(0xFFFFD54F), size: 14),
+                                            const SizedBox(width: 4),
+                                            Text(
+                                              'STREAK: $_streak',
+                                              style: const TextStyle(
+                                                fontSize: 11,
+                                                fontWeight: FontWeight.w900,
+                                                color: Color(0xFFFFD54F),
+                                                letterSpacing: 1.0,
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                    ],
+                                    if (_activePowerUps.isNotEmpty) ...[
+                                      const SizedBox(height: 6),
+                                      Wrap(
+                                        spacing: 6,
+                                        children: _activePowerUps.map((p) {
+                                          final data = PowerUpData.of(p.type);
+                                          return Container(
+                                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                                            decoration: BoxDecoration(
+                                              color: Colors.black87,
+                                              borderRadius: BorderRadius.circular(12),
+                                              border: Border.all(color: data.color, width: 1.2),
+                                            ),
+                                            child: Row(
+                                              mainAxisSize: MainAxisSize.min,
+                                              children: [
+                                                Icon(data.icon, color: data.color, size: 12),
+                                                const SizedBox(width: 4),
+                                                Text(
+                                                  '${p.remainingSeconds.toStringAsFixed(1)}s',
+                                                  style: TextStyle(
+                                                    color: data.color,
+                                                    fontSize: 10,
+                                                    fontWeight: FontWeight.w900,
+                                                  ),
+                                                ),
+                                              ],
+                                            ),
+                                          );
+                                        }).toList(),
+                                      ),
+                                    ],
+                                  ],
+                                ),
+                              ),
+                            ),
 
-                        // 10. Quick Control HUD (Top Bar) - Safe Area padded
-                        // RENDERED ON TOP OF OVERLAYS SO TOP HUD BUTTONS ARE NEVER BLOCKED!
-                        Positioned(
-                          top: isLargeScreen
-                              ? 14
-                              : max(12.0, topPadding + 4.0),
-                          left: 12,
-                          right: 12,
-                          child: _buildTopControlBar(themeData),
-                        ),
-                      ],
+                          // 7. World Intro Banner
+                          if (_worldIntroTimer > 0)
+                            Positioned(
+                              top: isLargeScreen ? 64 : max(60.0, topPadding + 50.0),
+                              left: 20,
+                              right: 20,
+                              child: _buildWorldIntroBanner(worldData),
+                            ),
+
+                          // 8. In-Flight Achievement Unlock Toast
+                          if (_unlockedToastMessage != null)
+                            Positioned(
+                              top: isLargeScreen ? 14 : max(12.0, topPadding + 4.0),
+                              left: 20,
+                              right: 20,
+                              child: _buildAchievementToast(),
+                            ),
+
+                          // 9. State Overlays
+                          if (_status == GameStatus.ready) _buildReadyOverlay(worldData),
+                          if (_status == GameStatus.paused) _buildPausedOverlay(),
+                          if (_status == GameStatus.gameOver) _buildGameOverOverlay(),
+
+                          // 10. Top Bar HUD (Interactive during ready and playing)
+                          Positioned(
+                            top: isLargeScreen ? 14 : max(12.0, topPadding + 4.0),
+                            left: 12,
+                            right: 12,
+                            child: _buildTopControlBar(worldData, skinConfig),
+                          ),
+                        ],
+                      ),
                     ),
                   ),
                 ),
@@ -1057,24 +1449,35 @@ class _HomePageState extends State<HomePage>
     );
   }
 
-  Widget _buildTopControlBar(EnvironmentThemeData themeData) {
+  // --- TOP HUD BAR ---
+  Widget _buildTopControlBar(WorldBiomeData worldData, BirdSkinConfig skinConfig) {
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
-        // Leaderboard Button
-        _buildHudIconButton(
-          icon: Icons.emoji_events_rounded,
-          tooltip: 'Hall of Fame (L)',
-          color: const Color(0xFFFFB300),
-          onTap: _openLeaderboard,
+        // Left side: Hall of Fame & Settings
+        Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            _buildHudIconButton(
+              icon: Icons.emoji_events_rounded,
+              tooltip: 'Hall of Fame (L)',
+              color: const Color(0xFFFFB300),
+              onTap: _openLeaderboard,
+            ),
+            const SizedBox(width: 8),
+            _buildHudIconButton(
+              icon: Icons.settings_rounded,
+              tooltip: 'Settings (O)',
+              color: Colors.white70,
+              onTap: _openSettingsDialog,
+            ),
+          ],
         ),
 
-        // Center: Pause Button during play / Audio toggle during ready or game over
+        // Center Button: Pause / Audio toggle
         if (_status == GameStatus.playing || _status == GameStatus.paused)
           _buildHudIconButton(
-            icon: _status == GameStatus.paused
-                ? Icons.play_arrow_rounded
-                : Icons.pause_rounded,
+            icon: _status == GameStatus.paused ? Icons.play_arrow_rounded : Icons.pause_rounded,
             tooltip: _status == GameStatus.paused ? 'Resume (P)' : 'Pause (P)',
             color: Colors.white,
             onTap: _togglePause,
@@ -1087,7 +1490,7 @@ class _HomePageState extends State<HomePage>
             onTap: _toggleSound,
           ),
 
-        // Right side: Sound toggle (during gameplay) + Skin Picker & Theme Toggle
+        // Right side: Sound toggle (during gameplay) + Skin Picker + World Picker
         Row(
           children: [
             if (_status == GameStatus.playing || _status == GameStatus.paused) ...[
@@ -1100,18 +1503,17 @@ class _HomePageState extends State<HomePage>
               const SizedBox(width: 8),
             ],
             _buildHudIconButton(
-              icon: BirdSkinData.fromSkin(_currentSkin).icon,
-              tooltip:
-                  'Skin: ${BirdSkinData.fromSkin(_currentSkin).label} (S)',
-              color: BirdSkinData.fromSkin(_currentSkin).particleColor,
-              onTap: _cycleSkin,
+              icon: skinConfig.icon,
+              tooltip: 'Skin: ${skinConfig.name} (S)',
+              color: skinConfig.particleColor,
+              onTap: _openAviaryDialog,
             ),
             const SizedBox(width: 8),
             _buildHudIconButton(
-              icon: themeData.icon,
-              tooltip: 'Theme: ${themeData.label} (T)',
+              icon: worldData.icon,
+              tooltip: 'Theme: ${worldData.name} (T)',
               color: Colors.white,
-              onTap: _cycleTheme,
+              onTap: _openWorldsDialog,
             ),
           ],
         ),
@@ -1128,7 +1530,7 @@ class _HomePageState extends State<HomePage>
     return Tooltip(
       message: tooltip,
       child: Material(
-        color: Colors.black.withValues(alpha: 0.55),
+        color: Colors.black.withValues(alpha: 0.6),
         borderRadius: BorderRadius.circular(12),
         child: InkWell(
           onTap: onTap,
@@ -1142,42 +1544,49 @@ class _HomePageState extends State<HomePage>
     );
   }
 
-  Widget _buildSky(EnvironmentThemeData themeData) {
+  // --- SKY & GROUND ---
+  Widget _buildSky(WorldBiomeData worldData) {
     return Container(
       decoration: BoxDecoration(
         gradient: LinearGradient(
           begin: Alignment.topCenter,
           end: Alignment.bottomCenter,
-          colors: themeData.skyGradient,
+          colors: worldData.skyGradient,
         ),
       ),
       child: Stack(
         children: [
-          // Night stars & moon
-          if (themeData.hasStars)
+          // Twinkling procedural stars for cosmic, neon city, and dreamland skies
+          if (worldData.biome == WorldBiome.cosmicGalaxy ||
+              worldData.biome == WorldBiome.neonCity ||
+              worldData.biome == WorldBiome.dreamland)
             Positioned.fill(
               child: CustomPaint(
-                painter: StarsPainter(stars: _stars, time: _worldTime),
+                painter: _StarPainter(stars: _stars, time: _worldTime),
               ),
             ),
-          // Distant parallax mountain horizon ridge
+          Positioned.fill(
+            child: CustomPaint(
+              painter: WorldCelestialPainter(biome: worldData.biome, time: _worldTime),
+            ),
+          ),
           Positioned.fill(
             child: CustomPaint(
               painter: ParallaxMountainPainter(
                 scrollOffset: _mountainScroll,
-                mountainColor: Color.lerp(themeData.pipeSecondary, Colors.black, 0.45)!
+                biome: worldData.biome,
+                mountainColor: Color.lerp(worldData.pipeSecondary, Colors.black, 0.45)!
                     .withValues(alpha: 0.32),
-                ridgeColor: Color.lerp(themeData.pipePrimary, Colors.black, 0.30)!
+                ridgeColor: Color.lerp(worldData.pipePrimary, Colors.black, 0.30)!
                     .withValues(alpha: 0.22),
               ),
             ),
           ),
-          // Scrolling clouds
           ClipRect(
             child: CustomPaint(
               painter: _CloudPainter(
                 offset: _cloudScroll,
-                cloudColor: themeData.cloudColor,
+                cloudColor: worldData.cloudColor,
               ),
             ),
           ),
@@ -1189,37 +1598,35 @@ class _HomePageState extends State<HomePage>
   Widget _buildGround(
     double arenaW,
     double groundH,
-    EnvironmentThemeData themeData, {
+    WorldBiomeData worldData, {
     double bottomPadding = 0.0,
   }) {
     return Column(
       children: [
-        // Top lush green grass strip with highlight rim
         Container(
           height: 16,
           decoration: BoxDecoration(
-            color: themeData.grassColor,
+            color: worldData.grassColor,
             border: Border(
               top: BorderSide(
-                color: Color.lerp(themeData.grassColor, Colors.white, 0.35)!,
+                color: Color.lerp(worldData.grassColor, Colors.white, 0.35)!,
                 width: 2.0,
               ),
-              bottom: BorderSide(color: themeData.grassBorder, width: 2.0),
+              bottom: BorderSide(color: worldData.grassBorder, width: 2.0),
             ),
           ),
         ),
-        // Soil area with stepped pixel teeth & scrolling diagonal stripes
         Expanded(
           child: Container(
-            color: themeData.soilColor,
+            color: worldData.soilColor,
             padding: EdgeInsets.only(bottom: bottomPadding),
             child: ClipRect(
               child: CustomPaint(
                 painter: _GroundStripePainter(
                   offset: _groundScroll,
-                  stripeColor: themeData.stripeColor,
-                  grassColor: themeData.grassColor,
-                  grassBorder: themeData.grassBorder,
+                  stripeColor: worldData.stripeColor,
+                  grassColor: worldData.grassColor,
+                  grassBorder: worldData.grassBorder,
                 ),
                 size: Size(arenaW, groundH - 16),
               ),
@@ -1230,7 +1637,92 @@ class _HomePageState extends State<HomePage>
     );
   }
 
-  Widget _buildReadyOverlay() {
+  Widget _buildWorldIntroBanner(WorldBiomeData worldData) {
+    return AnimatedOpacity(
+      duration: const Duration(milliseconds: 300),
+      opacity: (_worldIntroTimer / 2.0).clamp(0.0, 1.0),
+      child: Center(
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+          constraints: const BoxConstraints(maxWidth: 300),
+          decoration: BoxDecoration(
+            color: Colors.black.withValues(alpha: 0.82),
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(color: worldData.pipePrimary, width: 1.5),
+            boxShadow: [
+              BoxShadow(
+                color: worldData.pipePrimary.withValues(alpha: 0.4),
+                blurRadius: 16,
+              ),
+            ],
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(worldData.icon, color: worldData.pipePrimary, size: 18),
+              const SizedBox(width: 8),
+              Flexible(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      worldData.name.toUpperCase(),
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 11,
+                        fontWeight: FontWeight.w900,
+                        letterSpacing: 1.0,
+                      ),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    Text(
+                      worldData.subtitle,
+                      style: TextStyle(
+                        color: worldData.pipePrimary,
+                        fontSize: 9,
+                        fontWeight: FontWeight.w700,
+                      ),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildAchievementToast() {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+      decoration: BoxDecoration(
+        color: const Color(0xFF0F172A),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: const Color(0xFFFFD700), width: 1.5),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x66FFD700),
+            blurRadius: 18,
+          ),
+        ],
+      ),
+      child: Text(
+        _unlockedToastMessage ?? '',
+        textAlign: TextAlign.center,
+        style: const TextStyle(
+          color: Colors.white,
+          fontSize: 12,
+          fontWeight: FontWeight.w900,
+        ),
+      ),
+    );
+  }
+
+  // --- READY OVERLAY ---
+  Widget _buildReadyOverlay(WorldBiomeData worldData) {
     return Positioned.fill(
       child: Container(
         color: Colors.black.withValues(alpha: 0.18),
@@ -1327,7 +1819,7 @@ class _HomePageState extends State<HomePage>
             border: Border.all(color: Colors.white24),
           ),
           child: const Text(
-            'NEO ARCADE • SKY ODYSSEY',
+            'NEO ARCADE • SKYBOUND EXPANSION',
             style: TextStyle(
               fontSize: 10,
               fontWeight: FontWeight.w900,
@@ -1379,7 +1871,6 @@ class _HomePageState extends State<HomePage>
             ),
           ),
           const SizedBox(height: 12),
-          // Hotkeys pill
           Wrap(
             alignment: WrapAlignment.center,
             spacing: 8,
@@ -1388,7 +1879,8 @@ class _HomePageState extends State<HomePage>
               _buildKeyBadge('[SPACE] Fly'),
               _buildKeyBadge('[P] Pause'),
               _buildKeyBadge('[L] Ranks'),
-              _buildKeyBadge('[T] Theme'),
+              _buildKeyBadge('[T] World'),
+              _buildKeyBadge('[S] Skin'),
               _buildKeyBadge('[M] Audio'),
             ],
           ),
@@ -1406,8 +1898,7 @@ class _HomePageState extends State<HomePage>
       children: [
         if (_bestScore > 0)
           Container(
-            padding: const EdgeInsets.symmetric(
-                horizontal: 12, vertical: 6),
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
             decoration: BoxDecoration(
               color: Colors.black.withValues(alpha: 0.6),
               borderRadius: BorderRadius.circular(10),
@@ -1416,8 +1907,7 @@ class _HomePageState extends State<HomePage>
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                const Icon(Icons.star_rounded,
-                    color: Color(0xFFFFD54F), size: 18),
+                const Icon(Icons.star_rounded, color: Color(0xFFFFD54F), size: 18),
                 const SizedBox(width: 6),
                 Text(
                   'BEST SCORE: $_bestScore',
@@ -1440,8 +1930,23 @@ class _HomePageState extends State<HomePage>
           style: ElevatedButton.styleFrom(
             backgroundColor: const Color(0xFFF09030),
             foregroundColor: Colors.white,
-            padding: const EdgeInsets.symmetric(
-                horizontal: 14, vertical: 8),
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(10),
+            ),
+          ),
+        ),
+        ElevatedButton.icon(
+          onPressed: _openQuestsDialog,
+          icon: const Icon(Icons.stars_rounded, size: 16),
+          label: const Text(
+            'MISSIONS',
+            style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
+          ),
+          style: ElevatedButton.styleFrom(
+            backgroundColor: const Color(0xFF10B981),
+            foregroundColor: Colors.black,
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
             shape: RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(10),
             ),
@@ -1470,6 +1975,7 @@ class _HomePageState extends State<HomePage>
     );
   }
 
+  // --- PAUSED OVERLAY ---
   Widget _buildPausedOverlay() {
     return Positioned.fill(
       child: Container(
@@ -1507,10 +2013,7 @@ class _HomePageState extends State<HomePage>
                   ElevatedButton.icon(
                     onPressed: _togglePause,
                     icon: const Icon(Icons.play_arrow_rounded),
-                    label: const Text(
-                      'RESUME',
-                      style: TextStyle(fontWeight: FontWeight.w900),
-                    ),
+                    label: const Text('RESUME', style: TextStyle(fontWeight: FontWeight.w900)),
                     style: ElevatedButton.styleFrom(
                       backgroundColor: const Color(0xFF4CAF50),
                       foregroundColor: Colors.white,
@@ -1524,10 +2027,7 @@ class _HomePageState extends State<HomePage>
                   ElevatedButton.icon(
                     onPressed: _openLeaderboard,
                     icon: const Icon(Icons.emoji_events_rounded),
-                    label: const Text(
-                      'LEADERBOARD',
-                      style: TextStyle(fontWeight: FontWeight.w900),
-                    ),
+                    label: const Text('LEADERBOARD', style: TextStyle(fontWeight: FontWeight.w900)),
                     style: ElevatedButton.styleFrom(
                       backgroundColor: const Color(0xFFF09030),
                       foregroundColor: Colors.white,
@@ -1538,15 +2038,23 @@ class _HomePageState extends State<HomePage>
                     ),
                   ),
                   const SizedBox(height: 10),
-                  TextButton(
-                    onPressed: _restartGame,
-                    child: const Text(
-                      'QUIT TO MENU',
-                      style: TextStyle(
-                        fontWeight: FontWeight.bold,
-                        color: Colors.white70,
+                  ElevatedButton.icon(
+                    onPressed: _openSettingsDialog,
+                    icon: const Icon(Icons.settings_rounded),
+                    label: const Text('SETTINGS', style: TextStyle(fontWeight: FontWeight.w900)),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF607D8B),
+                      foregroundColor: Colors.white,
+                      minimumSize: const Size(180, 44),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
                       ),
                     ),
+                  ),
+                  const SizedBox(height: 10),
+                  TextButton(
+                    onPressed: _restartGame,
+                    child: const Text('RESTART TO READY', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.white70)),
                   ),
                 ],
               ),
@@ -1557,6 +2065,7 @@ class _HomePageState extends State<HomePage>
     );
   }
 
+  // --- GAME OVER OVERLAY ---
   Widget _buildGameOverOverlay() {
     return Positioned.fill(
       child: Container(
@@ -1605,7 +2114,6 @@ class _HomePageState extends State<HomePage>
                         Row(
                           mainAxisAlignment: MainAxisAlignment.spaceAround,
                           children: [
-                            // Medal indicator
                             Column(
                               children: [
                                 const Text(
@@ -1620,33 +2128,14 @@ class _HomePageState extends State<HomePage>
                                 _buildMedalBadge(_score),
                               ],
                             ),
-                            Container(
-                              width: 1.5,
-                              height: 50,
-                              color: Colors.white12,
-                            ),
-                            // Score stats
+                            Container(width: 1.5, height: 50, color: Colors.white12),
                             Column(
                               crossAxisAlignment: CrossAxisAlignment.end,
                               children: [
                                 Row(
                                   children: [
-                                    const Text(
-                                      'SCORE: ',
-                                      style: TextStyle(
-                                        fontSize: 13,
-                                        fontWeight: FontWeight.bold,
-                                        color: Colors.white70,
-                                      ),
-                                    ),
-                                    Text(
-                                      '$_score',
-                                      style: const TextStyle(
-                                        fontSize: 22,
-                                        fontWeight: FontWeight.w900,
-                                        color: Colors.white,
-                                      ),
-                                    ),
+                                    const Text('SCORE: ', style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Colors.white70)),
+                                    Text('$_score', style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w900, color: Colors.white)),
                                   ],
                                 ),
                                 const SizedBox(height: 4),
@@ -1655,50 +2144,25 @@ class _HomePageState extends State<HomePage>
                                     if (_isNewHighScore)
                                       Container(
                                         margin: const EdgeInsets.only(right: 6),
-                                        padding: const EdgeInsets.symmetric(
-                                            horizontal: 5, vertical: 2),
+                                        padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
                                         decoration: BoxDecoration(
                                           color: Colors.red,
-                                          borderRadius:
-                                              BorderRadius.circular(4),
+                                          borderRadius: BorderRadius.circular(4),
                                         ),
-                                        child: const Text(
-                                          'NEW',
-                                          style: TextStyle(
-                                            fontSize: 10,
-                                            fontWeight: FontWeight.w900,
-                                            color: Colors.white,
-                                          ),
-                                        ),
+                                        child: const Text('NEW', style: TextStyle(fontSize: 10, fontWeight: FontWeight.w900, color: Colors.white)),
                                       ),
-                                    const Text(
-                                      'BEST: ',
-                                      style: TextStyle(
-                                        fontSize: 13,
-                                        fontWeight: FontWeight.bold,
-                                        color: Colors.white70,
-                                      ),
-                                    ),
-                                    Text(
-                                      '$_bestScore',
-                                      style: const TextStyle(
-                                        fontSize: 22,
-                                        fontWeight: FontWeight.w900,
-                                        color: Colors.white,
-                                      ),
-                                    ),
+                                    const Text('BEST: ', style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Colors.white70)),
+                                    Text('$_bestScore', style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w900, color: Colors.white)),
                                   ],
                                 ),
                               ],
                             ),
                           ],
                         ),
-                        // Record submission status
                         if (_recordSubmittedThisRound) ...[
                           const SizedBox(height: 10),
                           Container(
-                            padding: const EdgeInsets.symmetric(
-                                horizontal: 10, vertical: 4),
+                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                             decoration: BoxDecoration(
                               color: const Color(0xFF1B3B22),
                               borderRadius: BorderRadius.circular(6),
@@ -1707,8 +2171,7 @@ class _HomePageState extends State<HomePage>
                             child: Row(
                               mainAxisAlignment: MainAxisAlignment.center,
                               children: [
-                                const Icon(Icons.check_circle_rounded,
-                                    color: Color(0xFF4CAF50), size: 16),
+                                const Icon(Icons.check_circle_rounded, color: Color(0xFF4CAF50), size: 16),
                                 const SizedBox(width: 6),
                                 Text(
                                   'Score recorded for pilot $_pilotName!',
@@ -1722,12 +2185,28 @@ class _HomePageState extends State<HomePage>
                             ),
                           ),
                         ],
+                        const SizedBox(height: 8),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            const Icon(Icons.diamond_rounded, color: Color(0xFFFFD700), size: 16),
+                            const SizedBox(width: 4),
+                            Text(
+                              '+$_gemsThisGame Sky Gems Collected',
+                              style: const TextStyle(
+                                color: Color(0xFFFFD700),
+                                fontWeight: FontWeight.w900,
+                                fontSize: 12,
+                              ),
+                            ),
+                          ],
+                        ),
                       ],
                     ),
                   ),
                   const SizedBox(height: 16),
 
-                  // Action Buttons: Play Again & Leaderboard
+                  // Action Buttons
                   Row(
                     children: [
                       Expanded(
@@ -1758,16 +2237,12 @@ class _HomePageState extends State<HomePage>
                         icon: const Icon(Icons.emoji_events_rounded, size: 18),
                         label: const Text(
                           'RANKS',
-                          style: TextStyle(
-                            fontSize: 13,
-                            fontWeight: FontWeight.w900,
-                          ),
+                          style: TextStyle(fontSize: 13, fontWeight: FontWeight.w900),
                         ),
                         style: ElevatedButton.styleFrom(
                           backgroundColor: const Color(0xFFF09030),
                           foregroundColor: Colors.white,
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 14, vertical: 12),
+                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
                           shape: RoundedRectangleBorder(
                             borderRadius: BorderRadius.circular(10),
                           ),
@@ -1777,7 +2252,6 @@ class _HomePageState extends State<HomePage>
                   ),
                   const SizedBox(height: 10),
 
-                  // Prompt to enter Call-sign if not submitted yet
                   if (!_recordSubmittedThisRound && _score > 0)
                     TextButton.icon(
                       onPressed: _showCallSignPrompt,
@@ -1829,10 +2303,7 @@ class _HomePageState extends State<HomePage>
       return Container(
         width: 44,
         height: 44,
-        decoration: BoxDecoration(
-          shape: BoxShape.circle,
-          color: Colors.grey.shade800,
-        ),
+        decoration: BoxDecoration(shape: BoxShape.circle, color: Colors.grey.shade800),
         child: const Icon(Icons.lock_outline, size: 22, color: Colors.white54),
       );
     }
@@ -1847,22 +2318,16 @@ class _HomePageState extends State<HomePage>
           color: medalColor,
           border: Border.all(color: Colors.white, width: 2.5),
           boxShadow: const [
-            BoxShadow(
-              color: Colors.black26,
-              blurRadius: 4,
-              offset: Offset(0, 2),
-            ),
+            BoxShadow(color: Colors.black26, blurRadius: 4, offset: Offset(0, 2)),
           ],
         ),
-        child: const Icon(
-          Icons.emoji_events,
-          size: 24,
-          color: Colors.white,
-        ),
+        child: const Icon(Icons.emoji_events, size: 24, color: Colors.white),
       ),
     );
   }
 }
+
+enum HapticFeedbackType { light, medium, heavy, selection }
 
 /// Custom GPU painter that renders moving diagonal ground stripes & stepped grass teeth.
 class _GroundStripePainter extends CustomPainter {
@@ -1880,7 +2345,6 @@ class _GroundStripePainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
-    // 1. Draw stepped pixel teeth on the grass bottom border for retro authenticity
     final toothPaint = Paint()
       ..color = grassBorder
       ..style = PaintingStyle.fill;
@@ -1896,7 +2360,6 @@ class _GroundStripePainter extends CustomPainter {
       );
     }
 
-    // 2. Draw moving diagonal ground stripes across the soil
     final stripePaint = Paint()
       ..color = stripeColor
       ..strokeWidth = 3.5
@@ -1951,22 +2414,18 @@ class _CloudPainter extends CustomPainter {
     for (double x = startX; x < size.width + spacing * 2; x += spacing) {
       final double y = size.height - baseY;
 
-      // Base pill
       final baseRRect = RRect.fromRectAndRadius(
         Rect.fromLTWH(x, y + 6, cloudW, 22),
         const Radius.circular(11),
       );
       canvas.drawRRect(baseRRect, cloudPaint);
 
-      // Left puff
       canvas.drawCircle(Offset(x + 24, y + 8), 15, cloudPaint);
       canvas.drawCircle(Offset(x + 24, y + 7), 12, highlightPaint);
 
-      // Center tall puff
       canvas.drawCircle(Offset(x + 50, y + 3), 20, cloudPaint);
       canvas.drawCircle(Offset(x + 50, y + 1), 16, highlightPaint);
 
-      // Right puff
       canvas.drawCircle(Offset(x + 74, y + 10), 13, cloudPaint);
       canvas.drawCircle(Offset(x + 74, y + 9), 10, highlightPaint);
     }
@@ -1977,3 +2436,35 @@ class _CloudPainter extends CustomPainter {
     return oldDelegate.offset != offset || oldDelegate.cloudColor != cloudColor;
   }
 }
+
+/// Procedural starfield painter rendering twinkling stars in cosmic and nighttime worlds.
+class _StarPainter extends CustomPainter {
+  final List<NightStar> stars;
+  final double time;
+
+  const _StarPainter({
+    required this.stars,
+    required this.time,
+  });
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()..style = PaintingStyle.fill;
+    for (final s in stars) {
+      final double alpha =
+          (0.3 + 0.7 * sin(s.twinklePhase + time * s.twinkleSpeed))
+              .clamp(0.0, 1.0);
+      paint.color = Colors.white.withValues(alpha: alpha);
+      canvas.drawCircle(
+        Offset(s.xRatio * size.width, s.yRatio * size.height),
+        s.baseRadius,
+        paint,
+      );
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _StarPainter oldDelegate) =>
+      oldDelegate.time != time;
+}
+

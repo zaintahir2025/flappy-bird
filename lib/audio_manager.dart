@@ -18,15 +18,18 @@ class AudioManager {
   // Sound effects pool allowing overlapping sounds (e.g., flap + gem + chime)
   final List<AudioPlayer> _sfxPool = [];
   int _nextSfxIndex = 0;
-  static const int _sfxPoolSize = 5;
+  static const int _sfxPoolSize = 6;
 
   // Master audio mute state
   bool _isMuted = false;
   bool get isMuted => _isMuted;
 
   // Volume levels
-  final double _musicVolume = 0.60;
-  final double _sfxVolume = 0.85;
+  double _musicVolume = 0.60;
+  double _sfxVolume = 0.85;
+
+  double get musicVolume => _musicVolume;
+  double get sfxVolume => _sfxVolume;
 
   bool _initialized = false;
 
@@ -87,6 +90,24 @@ class AudioManager {
   void setMuted(bool muted) {
     if (_isMuted != muted) {
       toggleMute();
+    }
+  }
+
+  /// Dynamically updates volume levels for BGM and SFX.
+  void setVolumes({double? musicVolume, double? sfxVolume}) {
+    if (musicVolume != null) {
+      _musicVolume = musicVolume.clamp(0.0, 1.0);
+      if (!_isMuted && !_isTestEnvironment) {
+        _bgmPlayer?.setVolume(_musicVolume);
+      }
+    }
+    if (sfxVolume != null) {
+      _sfxVolume = sfxVolume.clamp(0.0, 1.0);
+      if (!_isMuted && !_isTestEnvironment) {
+        for (final p in _sfxPool) {
+          p.setVolume(_sfxVolume);
+        }
+      }
     }
   }
 
@@ -169,6 +190,15 @@ class AudioManager {
 
   /// Mechanical UI button tap click
   void playClick() => _playSfx('click');
+
+  /// Power-up ability collected
+  void playPowerUp() => _playSfx('powerup');
+
+  /// Shield deflection / absorption
+  void playShield() => _playSfx('shield');
+
+  /// Unlocking bird skin, achievement, or world
+  void playUnlock() => _playSfx('unlock');
 
   /// Releases audio players on app disposal
   void dispose() {

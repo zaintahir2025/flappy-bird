@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flappy_bird/audio_manager.dart';
+import 'package:flappy_bird/game_models.dart';
 import 'package:flappy_bird/main.dart';
 import 'package:flappy_bird/score_storage.dart' as score_storage;
 
@@ -270,11 +271,105 @@ void main() {
     audio.playHit();
     audio.playGameOver();
     audio.playClick();
+    audio.playPowerUp();
+    audio.playShield();
+    audio.playUnlock();
 
     // Verify BGM state transitions
     await audio.playBgm();
     await audio.pauseBgm();
     await audio.resumeBgm();
     await audio.stopBgm();
+  });
+
+  test('World Biomes system provides all 7 distinct atmospheric worlds with progression requirements', () {
+    expect(WorldBiome.values.length, 7);
+    expect(WorldBiomeData.all.length, 7);
+
+    final expectedBiomes = [
+      WorldBiome.sunriseValley,
+      WorldBiome.neonCity,
+      WorldBiome.enchantedForest,
+      WorldBiome.frozenKingdom,
+      WorldBiome.cosmicGalaxy,
+      WorldBiome.volcanicSkies,
+      WorldBiome.dreamland,
+    ];
+
+    for (final b in expectedBiomes) {
+      final data = WorldBiomeData.of(b);
+      expect(data.name.isNotEmpty, isTrue);
+      expect(data.subtitle.isNotEmpty, isTrue);
+      expect(data.skyGradient.length, greaterThanOrEqualTo(2));
+      expect(data.unlockGems, greaterThanOrEqualTo(0));
+    }
+
+    expect(WorldBiomeData.of(WorldBiome.sunriseValley).unlockGems, 0);
+    expect(WorldBiomeData.of(WorldBiome.dreamland).unlockGems, 350);
+  });
+
+  test('Legendary Bird Collection features 14 birds across 5 distinct rarities', () {
+    expect(BirdRarity.values.length, 5);
+    expect(BirdSkinId.values.length, 14);
+    expect(BirdSkinConfig.all.length, 14);
+
+    final rarities = BirdSkinConfig.all.map((b) => b.rarity).toSet();
+    expect(rarities.length, 5);
+    expect(rarities.contains(BirdRarity.common), isTrue);
+    expect(rarities.contains(BirdRarity.rare), isTrue);
+    expect(rarities.contains(BirdRarity.epic), isTrue);
+    expect(rarities.contains(BirdRarity.legendary), isTrue);
+    expect(rarities.contains(BirdRarity.mythical), isTrue);
+
+    expect(BirdSkinConfig.of(BirdSkinId.classic).gemCost, 0);
+    expect(BirdSkinConfig.of(BirdSkinId.eternalPhoenix).gemCost, 700);
+    expect(BirdSkinConfig.of(BirdSkinId.eternalPhoenix).rarity, BirdRarity.mythical);
+  });
+
+  test('Power-Up system metadata and active progress calculations are mathematically sound', () {
+    expect(PowerUpType.values.length, 5);
+
+    for (final type in PowerUpType.values) {
+      final data = PowerUpData.of(type);
+      expect(data.label.isNotEmpty, isTrue);
+      expect(data.durationSeconds, greaterThan(0));
+    }
+
+    final active = ActivePowerUp(
+      type: PowerUpType.shield,
+      remainingSeconds: 10.0,
+      totalSeconds: 15.0,
+    );
+    expect(active.progress, closeTo(10.0 / 15.0, 0.01));
+    expect(active.update(5.0), isTrue);
+    expect(active.remainingSeconds, closeTo(5.0, 0.01));
+    expect(active.update(6.0), isFalse);
+  });
+
+  test('Daily and Weekly challenges generate deterministically with valid targets', () {
+    final now = DateTime(2026, 11, 1);
+    final daily = DailyChallenge.generateForDate(now);
+    expect(daily.length, 3);
+    for (final q in daily) {
+      expect(q.target, greaterThan(0));
+      expect(q.rewardGems, greaterThan(0));
+      expect(q.progressRatio, 0.0);
+    }
+
+    final weekly = WeeklyChallenge.generateForWeek(now);
+    expect(weekly.length, 3);
+    for (final w in weekly) {
+      expect(w.target, greaterThan(0));
+      expect(w.rewardGems, greaterThan(0));
+    }
+  });
+
+  test('Achievements system provides 7 distinct categories with career trophies', () {
+    expect(AchievementCategory.values.length, 7);
+    final achievements = Achievement.initialList();
+    expect(achievements.length, greaterThanOrEqualTo(20));
+
+    final categories = achievements.map((a) => a.category).toSet();
+    expect(categories.length, 7);
   });
 }
