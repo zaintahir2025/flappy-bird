@@ -48,17 +48,19 @@ $$\Delta t = \frac{t_{\text{current}} - t_{\text{last}}}{1000} \quad (\text{clam
 
 When the player triggers a flap or keyboard space input, an instantaneous upward impulse is applied:
 
-$$v_y \leftarrow v_{\text{flap}} = -530.0 \text{ px/s}$$
+$$v_y \leftarrow v_{\text{flap}} = -330.0 \text{ px/s}$$
 
 While airborne, downward acceleration acts continuously:
 
-$$v_y \leftarrow v_y + g \cdot \Delta t \quad \text{where } g = 1750.0 \text{ px/s}^2$$
+$$v_y \leftarrow \min(v_y + g \cdot \Delta t, 440.0) \quad \text{where } g = 820.0 \text{ px/s}^2$$
 
 The vertical position is updated accordingly:
 
 $$y \leftarrow y + v_y \cdot \Delta t$$
 
-In **Slow-Motion** mode ($\tau_{\text{slow}} > 0$), a time dilation factor of $\lambda = 0.55$ scales $\Delta t$, granting the player precision reflex control while retaining realistic Newtonian inertia.
+- **Ceiling Boundary Mechanics**: In accordance with classic arcade conventions, colliding with the top of the sky ($y - r < 0$) is non-lethal; it securely clamps the flyer within the viewport ($y \leftarrow r$) and zeroes vertical velocity ($v_y \leftarrow 0$), preventing unintended game-overs when ascending rapidly.
+- **Spawn Grace Window**: A 0.6-second spawn shield window is granted when launching flight from the Ready state.
+- In **Slow-Motion** mode ($\tau_{\text{slow}} > 0$), a time dilation factor of $\lambda = 0.60$ scales pipe and obstacle translation speeds, granting the player precision reflex control while retaining realistic Newtonian inertia.
 
 ### 3.2 Pitch Rotation Dynamics
 The visual rotation $\theta$ of the flyer smoothly interpolates between an upward climb of $-24^\circ$ and a terminal nose-dive of $+75^\circ$:

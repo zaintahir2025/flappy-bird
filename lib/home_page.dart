@@ -138,10 +138,10 @@ class _HomePageState extends State<HomePage>
   double _toastTimer = 0.0;
 
   // Physics constants
-  static const double _gravity = 980.0;
-  static const double _jumpVelocity = -350.0;
-  static const double _maxFallSpeed = 520.0;
-  static const double _basePipeSpeed = 160.0;
+  static const double _gravity = 820.0;
+  static const double _jumpVelocity = -330.0;
+  static const double _maxFallSpeed = 440.0;
+  static const double _basePipeSpeed = 150.0;
   static const double _pipeWidth = 68.0;
 
   // Active Power-Ups
@@ -323,12 +323,14 @@ class _HomePageState extends State<HomePage>
     _powerUpItems.clear();
     _floatingTexts.clear();
     _activePowerUps.clear();
-    _pipeSpacing = (arenaW * 0.65).clamp(210.0, 280.0);
+    _pipeSpacing = (arenaW * 0.65).clamp(210.0, 275.0);
 
-    for (int i = 0; i < 2; i++) {
+    // Spawn 3 pipes with the lead pipe starting at arenaW * 0.76 so it is
+    // immediately visible in all themes/modes on the ready screen!
+    for (int i = 0; i < 3; i++) {
       final pipe = PipePair(
-        x: arenaW + 80.0 + (i * _pipeSpacing),
-        topHeight: 150.0,
+        x: (arenaW * 0.76) + (i * _pipeSpacing),
+        topHeight: 140.0,
         gapHeight: 150.0,
       );
       _randomizePipe(pipe, skyH);
@@ -342,9 +344,11 @@ class _HomePageState extends State<HomePage>
   }
 
   void _randomizePipe(PipePair pipe, double skyH) {
-    final double gap = (skyH * 0.28).clamp(130.0, 180.0);
+    // Generous, comfortable gap between pylons
+    final double gap = (skyH * 0.29).clamp(145.0, 190.0);
     const double minPipe = 45.0;
-    final double available = (skyH - gap - (minPipe * 2)).clamp(20.0, double.infinity);
+    final double maxTop = skyH - gap - minPipe;
+    final double available = (maxTop - minPipe).clamp(10.0, double.infinity);
     final double top = minPipe + _random.nextDouble() * available;
 
     pipe.topHeight = top;
@@ -655,9 +659,10 @@ class _HomePageState extends State<HomePage>
     final double birdTop = _birdY - (_birdHitboxH / 2);
     final double birdBottom = _birdY + (_birdHitboxH / 2);
 
-    if (birdTop <= 0) {
-      _handleCollisionImpact();
-      return;
+    // Ceiling: Bound flyer within sky, NEVER trigger game over on ceiling!
+    if (birdTop < 0) {
+      _birdY = _birdHitboxH / 2;
+      _velocity = 0.0;
     }
 
     if (birdBottom >= _skyHeight) {
@@ -927,6 +932,7 @@ class _HomePageState extends State<HomePage>
       case GameStatus.ready:
         setState(() {
           _status = GameStatus.playing;
+          _shieldInvulnerableTime = 0.6; // 0.6s initial spawn grace period
         });
         if (_soundEnabled) {
           AudioManager.instance.playBgm();
@@ -967,7 +973,7 @@ class _HomePageState extends State<HomePage>
       _readyHoverTime = 0.0;
       _gameOverTime = null;
       _flapPulse = 1.0;
-      _birdY = _skyHeight * 0.44;
+      _birdY = _skyHeight * 0.40;
       _worldIntroTimer = 0.0;
       _flapRings.clear();
       _particles.clear();
@@ -1168,9 +1174,9 @@ class _HomePageState extends State<HomePage>
               _skyHeight = skyH;
               _birdX = arenaW * 0.28;
 
-              if (_pipes.isEmpty) {
+              if (_status == GameStatus.ready || _pipes.isEmpty) {
                 _initPipes(skyH, arenaW);
-                _birdY = skyH * 0.44;
+                _birdY = skyH * 0.40;
               }
             }
 
@@ -1251,7 +1257,7 @@ class _HomePageState extends State<HomePage>
                               top: pipe.topHeight + pipe.gapHeight,
                               child: MyBarriers(
                                 width: _pipeWidth,
-                                height: skyH - (pipe.topHeight + pipe.gapHeight),
+                                height: max(40.0, skyH - (pipe.topHeight + pipe.gapHeight)),
                                 isBottom: true,
                                 primaryColor: worldData.pipePrimary,
                                 secondaryColor: worldData.pipeSecondary,
