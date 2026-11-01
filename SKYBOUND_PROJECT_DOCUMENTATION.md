@@ -207,3 +207,47 @@ To build release binaries:
 ```bash
 flutter build apk --release --split-per-abi
 ```
+
+---
+
+## 7. Gameplay Balance & Collision Engineering
+
+### 7.1 Progressive Dynamic Difficulty Engine
+To ensure high player retention, the game replaces fixed speed and obstacle spacing with a continuous, score-based difficulty curve:
+$$\text{Progress} = \text{clamp}\left(\frac{\text{Score}}{35.0}, 0.0, 1.0\right)$$
+
+| Score Range | Speed (px/s) | Vertical Gap | Horizontal Spacing | Player Feel |
+| :--- | :--- | :--- | :--- | :--- |
+| **0 - 5** | 120 px/s | 220 px | 310 px | Extremely relaxed, welcoming, easy to learn |
+| **6 - 15** | 130 - 145 px/s | 200 - 185 px | 290 - 270 px | Gentle acceleration, rhythm establishing |
+| **16 - 25** | 145 - 160 px/s | 185 - 165 px | 270 - 240 px | Moderate challenge, focus required |
+| **26 - 35+** | 160 - 172 px/s | 165 - 150 px | 240 - 215 px | Master arcade intensity, high reflexes |
+
+### 7.2 Off-Screen Runway & Centered First Obstacle
+- **Off-Screen Runway**: The first obstacle pair spawns at `arenaW + 90.0 px`. At 120 px/s, this provides over **3.0 seconds** of calm, uninterrupted flying space from the very first tap.
+- **Elevation Alignment**: The gap of the first pipe is centered directly on the bird's initial cruising altitude (`skyH * 0.40`). The player never encounters an immediate wall or needs an emergency dive upon launch.
+- **Spawn Grace Period**: An initial 0.8s invulnerability window protects against accidental double-taps on the start screen.
+
+### 7.3 Precision Circle-to-AABB Collision Detection
+Standard Axis-Aligned Bounding Box (AABB) checks create a diagonal corner discrepancy of up to:
+$$\sqrt{17^2 + 13^2} \approx 21.4\text{ px}$$
+This causes unfair "phantom air deaths" where players crash before visually touching pipe corners. 
+
+Skybound replaces this with exact Euclidean Circle-to-AABB distance calculation:
+```dart
+bool _checkCircleRectCollision({
+  required double cx, required double cy, required double radius,
+  required double rx, required double ry, required double rw, required double rh,
+}) {
+  final double closestX = cx.clamp(rx, rx + rw);
+  final double closestY = cy.clamp(ry, ry + rh);
+  final double dx = cx - closestX;
+  final double dy = cy - closestY;
+  return (dx * dx + dy * dy) < (radius * radius);
+}
+```
+Combined with a forgiving $R = 11.5\text{ px}$ circular hitbox and a 3.0 px decorative pipe inset, collisions now feel 100% fair, satisfying, and pixel-precise.
+
+### 7.4 Modal Dialog Safety & Ticker Freezing (`_showModalSafe`)
+Opening any HUD modal dialog (such as the Aviary Skin Shop, World Selector, Hall of Fame, or Quests) safely freezes the game ticker and isolates HUD taps (`_isModalOpen = true`). This prevents background pipe scrolling, phantom crashes, or disappearing obstacles while menus are open.
+

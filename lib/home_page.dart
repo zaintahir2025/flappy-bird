@@ -115,8 +115,7 @@ class _HomePageState extends State<HomePage>
 
   // Bird physics & dimensions
   static const double _birdVisualSize = 64.0;
-  static const double _birdHitboxW = 34.0;
-  static const double _birdHitboxH = 26.0;
+  static const double _birdCollisionRadius = 11.5; // Precision circular hitbox (forgiving, eliminates phantom air deaths)
 
   double _birdX = 100.0;
   double _birdY = 250.0;
@@ -138,11 +137,37 @@ class _HomePageState extends State<HomePage>
   double _toastTimer = 0.0;
 
   // Physics constants
-  static const double _gravity = 820.0;
-  static const double _jumpVelocity = -330.0;
-  static const double _maxFallSpeed = 440.0;
-  static const double _basePipeSpeed = 150.0;
+  static const double _gravity = 800.0;
+  static const double _jumpVelocity = -320.0;
+  static const double _maxFallSpeed = 420.0;
   static const double _pipeWidth = 68.0;
+
+  // Modal safety flag to freeze ticker when dialogs are open
+  bool _isModalOpen = false;
+
+  // Dynamic progressive difficulty curve:
+  // Starts super easy & relaxing, gradually scaling up to master arcade challenge
+  double get _difficultyProgress => (_score / 35.0).clamp(0.0, 1.0);
+
+  // Pipe horizontal scrolling speed (starts slow and readable at 120 px/s, scales up to 172 px/s)
+  double get _currentPipeSpeed {
+    final base = 120.0 + (_difficultyProgress * 52.0);
+    return _isSlowMo ? base * 0.60 : base;
+  }
+
+  // Pipe gap (starts very generous at 220px, scales down to 150px at score 40+)
+  // Dynamically bounds to available sky height so ultra-compact landscape screens never throw
+  double _getDynamicGap(double skyH) {
+    final double absoluteMax = (skyH - 80.0).clamp(90.0, 240.0);
+    final double maxGap = min(absoluteMax, (skyH * 0.38).clamp(160.0, 230.0));
+    final double minGap = min(maxGap - 20.0, (skyH * 0.26).clamp(115.0, 160.0));
+    return (maxGap - (_difficultyProgress * (maxGap - minGap))).clamp(85.0, absoluteMax);
+  }
+
+  // Pipe horizontal spacing (starts wide at 310px, scales down to 215px)
+  double _getDynamicSpacing(double arenaW) {
+    return (arenaW * 0.80 - (_difficultyProgress * 75.0)).clamp(215.0, 320.0);
+  }
 
   // Active Power-Ups
   final List<ActivePowerUp> _activePowerUps = [];
@@ -323,17 +348,17 @@ class _HomePageState extends State<HomePage>
     _powerUpItems.clear();
     _floatingTexts.clear();
     _activePowerUps.clear();
-    _pipeSpacing = (arenaW * 0.65).clamp(210.0, 275.0);
+    _pipeSpacing = _getDynamicSpacing(arenaW);
 
-    // Spawn 3 pipes with the lead pipe starting at arenaW * 0.76 so it is
-    // immediately visible in all themes/modes on the ready screen!
+    // Initial runway: First pipe spawns comfortably ahead at arenaW + 90.0
+    // so the player has at least 2.5-3.0 seconds of calm, safe flying room to find their rhythm!
     for (int i = 0; i < 3; i++) {
       final pipe = PipePair(
-        x: (arenaW * 0.76) + (i * _pipeSpacing),
-        topHeight: 140.0,
-        gapHeight: 150.0,
+        x: arenaW + 90.0 + (i * _pipeSpacing),
+        topHeight: 120.0,
+        gapHeight: 220.0,
       );
-      _randomizePipe(pipe, skyH);
+      _randomizePipe(pipe, skyH, isFirstPipe: i == 0);
       _pipes.add(pipe);
     }
 
@@ -343,13 +368,27 @@ class _HomePageState extends State<HomePage>
     );
   }
 
-  void _randomizePipe(PipePair pipe, double skyH) {
-    // Generous, comfortable gap between pylons
-    final double gap = (skyH * 0.29).clamp(145.0, 190.0);
-    const double minPipe = 45.0;
-    final double maxTop = skyH - gap - minPipe;
-    final double available = (maxTop - minPipe).clamp(10.0, double.infinity);
-    final double top = minPipe + _random.nextDouble() * available;
+  void _randomizePipe(PipePair pipe, double skyH, {bool isFirstPipe = false}) {
+    // Dynamic progressive gap: starts super wide (220px) and smoothly scales with score
+    // Constrained so that it never exceeds available sky space on ultra-compact landscape displays
+    final double maxPossibleGap = (skyH - 80.0).clamp(85.0, 240.0);
+    final double rawGap = isFirstPipe
+        ? (skyH * 0.38).clamp(160.0, 230.0)
+        : _getDynamicGap(skyH);
+    final double gap = rawGap.clamp(85.0, maxPossibleGap);
+
+    final double minPipe = (skyH * 0.08).clamp(25.0, 45.0);
+    final double maxTop = max(minPipe, skyH - gap - minPipe);
+
+    double top;
+    if (isFirstPipe) {
+      // First pipe gap is centered directly on the bird's initial cruising height (skyH * 0.40)
+      final double targetTop = (skyH * 0.40) - (gap / 2);
+      top = targetTop.clamp(minPipe, maxTop);
+    } else {
+      final double available = max(0.0, maxTop - minPipe);
+      top = minPipe + (available > 0 ? _random.nextDouble() * available : 0.0);
+    }
 
     pipe.topHeight = top;
     pipe.gapHeight = gap;
@@ -390,7 +429,7 @@ class _HomePageState extends State<HomePage>
         ((elapsed - _lastElapsed).inMicroseconds / 1000000.0).clamp(0.001, 0.033);
     _lastElapsed = elapsed;
 
-    if (!mounted || _status == GameStatus.paused) return;
+    if (!mounted || _status == GameStatus.paused || _isModalOpen) return;
 
     setState(() {
       _updateGame(dt);
@@ -431,7 +470,7 @@ class _HomePageState extends State<HomePage>
 
     _activePowerUps.removeWhere((p) => !p.update(dt));
 
-    final effectivePipeSpeed = _isSlowMo ? _basePipeSpeed * 0.60 : _basePipeSpeed;
+    final effectivePipeSpeed = _currentPipeSpeed;
     final effectiveGravity = _isSlowMo ? _gravity * 0.70 : _gravity;
 
     if (_status != GameStatus.gameOver) {
@@ -450,7 +489,7 @@ class _HomePageState extends State<HomePage>
     switch (_status) {
       case GameStatus.ready:
         _readyHoverTime += dt;
-        _birdY = (_skyHeight * 0.44) + sin(_readyHoverTime * 5.0) * 8.0;
+        _birdY = (_skyHeight * 0.40) + sin(_readyHoverTime * 5.0) * 8.0;
         _rotation = sin(_readyHoverTime * 5.0) * 0.08;
         _velocity = 0.0;
         _flapPulse = 1.0 + (sin(_readyHoverTime * 10.0).abs() * 0.05);
@@ -462,6 +501,12 @@ class _HomePageState extends State<HomePage>
           _velocity = _maxFallSpeed;
         }
         _birdY += _velocity * dt;
+
+        // Ceiling clamping: Keep flyer safely within the sky, NEVER trigger game over on ceiling
+        if (_birdY < _birdCollisionRadius) {
+          _birdY = _birdCollisionRadius;
+          if (_velocity < 0) _velocity = 0.0;
+        }
 
         if (_velocity < -50.0) {
           _rotation = -0.42;
@@ -499,6 +544,7 @@ class _HomePageState extends State<HomePage>
 
           if (pipe.x < -_pipeWidth - 20.0) {
             final double rightmostX = _pipes.map((p) => p.x).reduce(max);
+            _pipeSpacing = _getDynamicSpacing(_arenaWidth);
             pipe.x = rightmostX + _pipeSpacing;
             _randomizePipe(pipe, _skyHeight);
           }
@@ -580,7 +626,7 @@ class _HomePageState extends State<HomePage>
         break;
 
       case GameStatus.gameOver:
-        final double groundLimit = _skyHeight - (_birdHitboxH / 2);
+        final double groundLimit = _skyHeight - _birdCollisionRadius;
         if (_birdY < groundLimit) {
           _velocity += _gravity * 1.5 * dt;
           _birdY = (_birdY + _velocity * dt).clamp(0.0, groundLimit);
@@ -654,39 +700,79 @@ class _HomePageState extends State<HomePage>
   void _checkCollisions() {
     if (_shieldInvulnerableTime > 0) return;
 
-    final double birdLeft = _birdX - (_birdHitboxW / 2);
-    final double birdRight = _birdX + (_birdHitboxW / 2);
-    final double birdTop = _birdY - (_birdHitboxH / 2);
-    final double birdBottom = _birdY + (_birdHitboxH / 2);
-
-    // Ceiling: Bound flyer within sky, NEVER trigger game over on ceiling!
-    if (birdTop < 0) {
-      _birdY = _birdHitboxH / 2;
-      _velocity = 0.0;
+    // Ceiling safety: Keep flyer bounded safely within the sky, never lethal
+    if (_birdY < _birdCollisionRadius) {
+      _birdY = _birdCollisionRadius;
+      if (_velocity < 0) _velocity = 0.0;
     }
 
-    if (birdBottom >= _skyHeight) {
-      _birdY = _skyHeight - (_birdHitboxH / 2);
+    // Ground collision test (precise circular contact)
+    final double groundLimit = _skyHeight - _birdCollisionRadius;
+    if (_birdY >= groundLimit) {
+      _birdY = groundLimit;
       _handleCollisionImpact();
       return;
     }
 
     if (_isGhost) return;
 
+    // Precision Circle-to-AABB pipe collision:
+    // Completely eliminates the 21px "phantom air death" / invisible corner killzone!
     for (final pipe in _pipes) {
-      final double pipeLeft = pipe.x + 2.0;
-      final double pipeRight = pipe.x + _pipeWidth - 2.0;
+      // Early broad-phase rejection: skip math if pipe is far away
+      if (pipe.x > _birdX + _birdCollisionRadius + 12.0 ||
+          pipe.x + _pipeWidth < _birdX - _birdCollisionRadius - 12.0) {
+        continue;
+      }
 
-      if (birdRight > pipeLeft && birdLeft < pipeRight) {
-        final double topPipeBottom = pipe.topHeight;
-        final double bottomPipeTop = pipe.topHeight + pipe.gapHeight;
+      // Top pipe: from y = 0 to y = topHeight
+      // Inset by 3.0px horizontally so decorative bevels/glows don't cause unfair hits
+      final bool topHit = _checkCircleRectCollision(
+        cx: _birdX,
+        cy: _birdY,
+        radius: _birdCollisionRadius,
+        rx: pipe.x + 3.0,
+        ry: 0.0,
+        rw: _pipeWidth - 6.0,
+        rh: pipe.topHeight,
+      );
 
-        if (birdTop < topPipeBottom || birdBottom > bottomPipeTop) {
-          _handleCollisionImpact();
-          return;
-        }
+      // Bottom pipe: from y = topHeight + gapHeight down to ground
+      final double bottomPipeY = pipe.topHeight + pipe.gapHeight;
+      final double bottomPipeH = max(45.0, _skyHeight - bottomPipeY);
+      final bool bottomHit = _checkCircleRectCollision(
+        cx: _birdX,
+        cy: _birdY,
+        radius: _birdCollisionRadius,
+        rx: pipe.x + 3.0,
+        ry: bottomPipeY,
+        rw: _pipeWidth - 6.0,
+        rh: bottomPipeH,
+      );
+
+      if (topHit || bottomHit) {
+        _handleCollisionImpact();
+        return;
       }
     }
+  }
+
+  /// Calculates exact Euclidean distance between circle center and the closest point
+  /// on an Axis-Aligned Bounding Box (AABB). Returns true if distance < circle radius.
+  bool _checkCircleRectCollision({
+    required double cx,
+    required double cy,
+    required double radius,
+    required double rx,
+    required double ry,
+    required double rw,
+    required double rh,
+  }) {
+    final double closestX = cx.clamp(rx, rx + rw);
+    final double closestY = cy.clamp(ry, ry + rh);
+    final double dx = cx - closestX;
+    final double dy = cy - closestY;
+    return (dx * dx + dy * dy) < (radius * radius);
   }
 
   void _handleCollisionImpact() {
@@ -765,10 +851,8 @@ class _HomePageState extends State<HomePage>
   }
 
   void _showCallSignPrompt() {
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (context) => NameInputDialog(
+    _showModalSafe(
+      (context) => NameInputDialog(
         score: _score,
         initialName: _pilotName,
         onSubmit: (name) {
@@ -932,7 +1016,7 @@ class _HomePageState extends State<HomePage>
       case GameStatus.ready:
         setState(() {
           _status = GameStatus.playing;
-          _shieldInvulnerableTime = 0.6; // 0.6s initial spawn grace period
+          _shieldInvulnerableTime = 0.8; // 0.8s initial spawn grace period
         });
         if (_soundEnabled) {
           AudioManager.instance.playBgm();
@@ -1006,13 +1090,42 @@ class _HomePageState extends State<HomePage>
     }
   }
 
+  // Safe modal dialog runner: freezes game ticker and prevents background pipe scrolling
+  Future<void> _showModalSafe(WidgetBuilder builder) async {
+    final wasPlaying = _status == GameStatus.playing;
+    if (wasPlaying) {
+      setState(() {
+        _status = GameStatus.paused;
+      });
+      AudioManager.instance.pauseBgm();
+    }
+    _isModalOpen = true;
+    _lastElapsed = Duration.zero;
+
+    await showDialog(
+      context: context,
+      barrierColor: Colors.black54,
+      builder: builder,
+    );
+
+    _isModalOpen = false;
+    _lastElapsed = Duration.zero;
+
+    // If still on the ready screen when modal closes, re-initialize pipes in their exact starting positions
+    if (mounted && _status == GameStatus.ready) {
+      setState(() {
+        _initPipes(_skyHeight, _arenaWidth);
+        _birdY = _skyHeight * 0.40;
+      });
+    }
+  }
+
   // Dialog openers
   void _openWorldsDialog() {
     AudioManager.instance.playClick();
     _triggerHaptic(HapticFeedbackType.selection);
-    showDialog(
-      context: context,
-      builder: (ctx) => WorldSelectDialog(
+    _showModalSafe(
+      (ctx) => WorldSelectDialog(
         unlockedWorlds: _unlockedWorlds,
         activeWorldId: _activeWorldId,
         totalGems: _totalGems,
@@ -1033,9 +1146,8 @@ class _HomePageState extends State<HomePage>
   void _openAviaryDialog() {
     AudioManager.instance.playClick();
     _triggerHaptic(HapticFeedbackType.selection);
-    showDialog(
-      context: context,
-      builder: (ctx) => SkinShopDialog(
+    _showModalSafe(
+      (ctx) => SkinShopDialog(
         unlockedSkins: _unlockedSkins,
         activeSkinId: _activeSkinId,
         totalGems: _totalGems,
@@ -1053,9 +1165,8 @@ class _HomePageState extends State<HomePage>
   void _openQuestsDialog() {
     AudioManager.instance.playClick();
     _triggerHaptic(HapticFeedbackType.selection);
-    showDialog(
-      context: context,
-      builder: (ctx) => QuestsDialog(
+    _showModalSafe(
+      (ctx) => QuestsDialog(
         dailyChallenges: _dailyChallenges,
         weeklyChallenges: _weeklyChallenges,
         achievements: _achievements,
@@ -1075,10 +1186,8 @@ class _HomePageState extends State<HomePage>
   void _openLeaderboard() {
     AudioManager.instance.playClick();
     _triggerHaptic(HapticFeedbackType.selection);
-    showDialog(
-      context: context,
-      barrierColor: Colors.black54,
-      builder: (context) => LeaderboardDialog(
+    _showModalSafe(
+      (context) => LeaderboardDialog(
         leaderboard: _leaderboard,
         stats: _playerStats,
       ),
@@ -1088,9 +1197,8 @@ class _HomePageState extends State<HomePage>
   void _openSettingsDialog() {
     AudioManager.instance.playClick();
     _triggerHaptic(HapticFeedbackType.selection);
-    showDialog(
-      context: context,
-      builder: (ctx) => SettingsDialog(
+    _showModalSafe(
+      (ctx) => SettingsDialog(
         settings: _settings,
         pilotName: _pilotName,
         onSettingsSaved: (newSettings, newName) {
@@ -1440,7 +1548,11 @@ class _HomePageState extends State<HomePage>
                             top: isLargeScreen ? 14 : max(12.0, topPadding + 4.0),
                             left: 12,
                             right: 12,
-                            child: _buildTopControlBar(worldData, skinConfig),
+                            child: GestureDetector(
+                              behavior: HitTestBehavior.opaque,
+                              onTap: () {}, // Absorb taps so HUD touches NEVER trigger background flaps
+                              child: _buildTopControlBar(worldData, skinConfig),
+                            ),
                           ),
                         ],
                       ),
