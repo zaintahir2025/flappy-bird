@@ -176,19 +176,21 @@ class MyBird extends StatelessWidget {
     }
 
     // 8. Flight jetstream trail and RepaintBoundary containment
+    // Perfectly centered: the bird body is centered exactly at (width/2, height/2)
+    // so logical coordinate (_birdX, _birdY) aligns 1:1 with the visible flyer sprite.
     return RepaintBoundary(
       child: SizedBox(
-        width: width + 30.0,
-        height: height + 16.0,
+        width: width,
+        height: height,
         child: Stack(
           clipBehavior: Clip.none,
-          alignment: Alignment.centerRight,
+          alignment: Alignment.center,
           children: [
-            // Aerodynamic wind jetstream ribbon trailing behind the flyer
+            // Aerodynamic wind jetstream ribbon trailing to the left behind the flyer
             Positioned(
-              left: 0,
+              right: width * 0.72,
               top: height * 0.28,
-              width: 34.0,
+              width: 32.0,
               height: height * 0.45,
               child: CustomPaint(
                 painter: _WindTrailPainter(
@@ -198,9 +200,10 @@ class MyBird extends StatelessWidget {
               ),
             ),
 
-            // The main flyer sprite with rotation transform
+            // The main flyer sprite, perfectly centered in the (width x height) box
             Positioned(
-              right: 0,
+              left: 0,
+              top: 0,
               width: width,
               height: height,
               child: Transform.rotate(
