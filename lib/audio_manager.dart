@@ -52,9 +52,13 @@ class AudioManager {
       // Pre-instantiate SFX pool players for instant low-latency playback
       for (int i = 0; i < _sfxPoolSize; i++) {
         final player = AudioPlayer();
-        await player.setReleaseMode(ReleaseMode.stop);
-        await player.setPlayerMode(PlayerMode.lowLatency);
-        await player.setVolume(_isMuted ? 0.0 : _sfxVolume);
+        try {
+          await player.setReleaseMode(ReleaseMode.stop);
+          if (!kIsWeb && defaultTargetPlatform == TargetPlatform.android) {
+            await player.setPlayerMode(PlayerMode.lowLatency);
+          }
+          await player.setVolume(_isMuted ? 0.0 : _sfxVolume);
+        } catch (_) {}
         _sfxPool.add(player);
       }
 
