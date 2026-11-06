@@ -60,7 +60,7 @@ void main() {
     await tester.pump();
 
     // Advance time without jumping so bird falls into the ground
-    for (int i = 0; i < 60; i++) {
+    for (int i = 0; i < 90; i++) {
       await tester.pump(const Duration(milliseconds: 30));
     }
 

@@ -527,7 +527,7 @@ class BirdSkinConfig {
     rarity: BirdRarity.common,
     gemCost: 0,
     particleColor: Color(0xFFFFD54F),
-    icon: Icons.flight_rounded,
+    icon: Icons.flutter_dash,
     trailType: ParticleTrailType.feathers,
     shaderColor: null,
     glowColor: null,

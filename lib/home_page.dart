@@ -116,7 +116,7 @@ class _HomePageState extends State<HomePage>
 
   // Bird physics & dimensions
   static const double _birdVisualSize = 64.0;
-  static const double _birdCollisionRadius = 10.5; // Precision circular hitbox (forgiving, perfectly matches visual body)
+  static const double _birdCollisionRadius = 8.5; // Precision circular hitbox (ultra-forgiving, perfectly matches visual body core)
 
   double _birdX = 100.0;
   double _birdY = 250.0;
@@ -148,34 +148,34 @@ class _HomePageState extends State<HomePage>
   Timer? _callSignTimer;
 
   // Dynamic progressive difficulty curve:
-  // Starts super easy, floaty & welcoming (score 0), gradually scaling up to master arcade challenge (score 35+)
-  double get _difficultyProgress => (_score / 35.0).clamp(0.0, 1.0);
+  // Starts ultra-welcoming, floaty & easy at score 0, gradually scaling up to master arcade challenge at score 40+
+  double get _difficultyProgress => (_score / 40.0).clamp(0.0, 1.0);
 
   // Progressive physics:
-  // At score 0: gentle floaty gravity (560 px/s²) and buoyant jump (-270 px/s)
-  // At score 35+: classic snappy arcade gravity (780 px/s²) and fast jump (-315 px/s)
-  double get _currentGravity => 560.0 + (_difficultyProgress * 220.0);
-  double get _currentJumpVelocity => -270.0 - (_difficultyProgress * 45.0);
-  double get _currentMaxFallSpeed => 340.0 + (_difficultyProgress * 80.0);
+  // At score 0: gentle floaty gravity (460 px/s²) and buoyant jump (-240 px/s)
+  // At score 40+: classic snappy arcade gravity (740 px/s²) and fast jump (-305 px/s)
+  double get _currentGravity => 460.0 + (_difficultyProgress * 280.0);
+  double get _currentJumpVelocity => -240.0 - (_difficultyProgress * 65.0);
+  double get _currentMaxFallSpeed => 290.0 + (_difficultyProgress * 110.0);
 
-  // Pipe horizontal scrolling speed (starts slow and readable at 105 px/s, scales up to 168 px/s)
+  // Pipe horizontal scrolling speed (starts very gentle at 90 px/s, scales up to 165 px/s)
   double get _currentPipeSpeed {
-    final base = 105.0 + (_difficultyProgress * 63.0);
+    final base = 90.0 + (_difficultyProgress * 75.0);
     return _isSlowMo ? base * 0.60 : base;
   }
 
-  // Pipe gap (starts very generous at 240px, scales down to 155px at score 35+)
+  // Pipe gap (starts very generous at 270px, scales down to 160px at score 40+)
   // Dynamically bounds to available sky height so ultra-compact landscape screens never throw
   double _getDynamicGap(double skyH) {
-    final double absoluteMax = (skyH - 70.0).clamp(90.0, 260.0);
-    final double maxGap = min(absoluteMax, (skyH * 0.40).clamp(180.0, 240.0));
-    final double minGap = min(maxGap - 25.0, (skyH * 0.26).clamp(120.0, 155.0));
+    final double absoluteMax = (skyH - 65.0).clamp(90.0, 280.0);
+    final double maxGap = min(absoluteMax, (skyH * 0.44).clamp(190.0, 270.0));
+    final double minGap = min(maxGap - 30.0, (skyH * 0.27).clamp(120.0, 160.0));
     return (maxGap - (_difficultyProgress * (maxGap - minGap))).clamp(85.0, absoluteMax);
   }
 
-  // Pipe horizontal spacing (starts wide at 340px, scales down to 220px)
+  // Pipe horizontal spacing (starts wide at 360px, scales down to 230px)
   double _getDynamicSpacing(double arenaW) {
-    return (arenaW * 0.85 - (_difficultyProgress * 80.0)).clamp(220.0, 350.0);
+    return (arenaW * 0.95 - (_difficultyProgress * 90.0)).clamp(230.0, 380.0);
   }
 
   // Active Power-Ups
@@ -362,14 +362,14 @@ class _HomePageState extends State<HomePage>
     _pipeSpacing = _getDynamicSpacing(arenaW);
 
     // Initial setup:
-    // First pipe is clearly visible on the right side of the arena (arenaW * 0.85) in all display sizes,
-    // with a generous 240px canyon gap centered directly at the bird's cruising height (skyH * 0.40).
-    final double firstPipeX = arenaW * 0.85;
+    // First pipe is placed comfortably on the right side of the arena (arenaW * 0.90) in all display sizes,
+    // with a massive, welcoming 270px canyon gap centered directly at the bird's cruising height (skyH * 0.40).
+    final double firstPipeX = arenaW * 0.90;
     for (int i = 0; i < 3; i++) {
       final pipe = PipePair(
         x: firstPipeX + (i * _pipeSpacing),
         topHeight: 120.0,
-        gapHeight: 240.0,
+        gapHeight: 270.0,
       );
       _randomizePipe(pipe, skyH, isFirstPipe: i == 0);
       _pipes.add(pipe);
@@ -382,11 +382,11 @@ class _HomePageState extends State<HomePage>
   }
 
   void _randomizePipe(PipePair pipe, double skyH, {bool isFirstPipe = false}) {
-    // Dynamic progressive gap: starts super wide (240px) and smoothly scales with score
+    // Dynamic progressive gap: starts super wide (270px) and smoothly scales with score
     // Constrained so that it never exceeds available sky space on ultra-compact landscape displays
-    final double maxPossibleGap = (skyH - 70.0).clamp(85.0, 260.0);
+    final double maxPossibleGap = (skyH - 65.0).clamp(85.0, 280.0);
     final double rawGap = isFirstPipe
-        ? (skyH * 0.42).clamp(180.0, 245.0)
+        ? (skyH * 0.44).clamp(190.0, 275.0)
         : _getDynamicGap(skyH);
     final double gap = rawGap.clamp(85.0, maxPossibleGap);
 
@@ -739,15 +739,15 @@ class _HomePageState extends State<HomePage>
       }
 
       // Top pipe: from y = 0 to y = topHeight
-      // Inset by 3.0px horizontally so decorative bevels/glows don't cause unfair hits
+      // Inset by 5.0px horizontally and 4.0px vertically so decorative bevels/glows NEVER cause unfair hits
       final bool topHit = _checkCircleRectCollision(
         cx: _birdX,
         cy: _birdY,
         radius: _birdCollisionRadius,
-        rx: pipe.x + 3.0,
+        rx: pipe.x + 5.0,
         ry: 0.0,
-        rw: _pipeWidth - 6.0,
-        rh: pipe.topHeight,
+        rw: _pipeWidth - 10.0,
+        rh: max(0.0, pipe.topHeight - 4.0),
       );
 
       // Bottom pipe: from y = topHeight + gapHeight down to ground
@@ -757,9 +757,9 @@ class _HomePageState extends State<HomePage>
         cx: _birdX,
         cy: _birdY,
         radius: _birdCollisionRadius,
-        rx: pipe.x + 3.0,
-        ry: bottomPipeY,
-        rw: _pipeWidth - 6.0,
+        rx: pipe.x + 5.0,
+        ry: bottomPipeY + 4.0,
+        rw: _pipeWidth - 10.0,
         rh: bottomPipeH,
       );
 
@@ -1031,7 +1031,13 @@ class _HomePageState extends State<HomePage>
       case GameStatus.ready:
         setState(() {
           _status = GameStatus.playing;
-          _shieldInvulnerableTime = 1.0; // 1.0s initial spawn grace period
+          _shieldInvulnerableTime = 1.5; // 1.5s initial spawn grace period
+          // Shift pipes forward to guarantee a wide, calm, safe takeoff runway for new players
+          final double firstPipeX = max(_arenaWidth * 1.15, _arenaWidth + 80.0);
+          for (int i = 0; i < _pipes.length; i++) {
+            _pipes[i].x = firstPipeX + (i * _pipeSpacing);
+            _pipes[i].passed = false;
+          }
         });
         if (_soundEnabled) {
           AudioManager.instance.playBgm();
@@ -1295,6 +1301,8 @@ class _HomePageState extends State<HomePage>
                 _initPipes(skyH, arenaW);
                 _birdY = skyH * 0.40;
               }
+            } else if (_pipes.isEmpty) {
+              _initPipes(skyH, arenaW);
             }
 
             final double shakeOffsetX = _screenShakeIntensity > 0
