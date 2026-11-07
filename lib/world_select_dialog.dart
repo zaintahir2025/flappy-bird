@@ -47,13 +47,7 @@ class _WorldSelectDialogState extends State<WorldSelectDialog> {
 
   Future<void> _unlockWorld(WorldBiomeData world) async {
     if (_gems < world.unlockGems) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Need ${world.unlockGems - _gems} more Sky Gems!'),
-          backgroundColor: Colors.redAccent,
-          duration: const Duration(seconds: 2),
-        ),
-      );
+      _showInsufficientGemsDialog(world);
       return;
     }
 
@@ -71,6 +65,244 @@ class _WorldSelectDialogState extends State<WorldSelectDialog> {
     await score_storage.saveActiveWorld(_activeWorldId);
 
     widget.onWorldChanged(_activeWorldId, _gems, _unlockedWorlds);
+  }
+
+  void _showInsufficientGemsDialog(WorldBiomeData world) {
+    AudioManager.instance.playHit();
+    HapticFeedback.mediumImpact();
+
+    final deficit = world.unlockGems - _gems;
+
+    showDialog(
+      context: context,
+      builder: (ctx) => Dialog(
+        backgroundColor: Colors.transparent,
+        insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
+        child: Container(
+          constraints: const BoxConstraints(maxWidth: 420),
+          padding: const EdgeInsets.all(22),
+          decoration: BoxDecoration(
+            color: const Color(0xFF0F172A),
+            borderRadius: BorderRadius.circular(24),
+            border: Border.all(color: const Color(0xFFFF5252), width: 2),
+            boxShadow: [
+              BoxShadow(
+                color: const Color(0xFFFF5252).withValues(alpha: 0.35),
+                blurRadius: 28,
+                spreadRadius: 2,
+              ),
+            ],
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              // Icon with locked halo
+              Stack(
+                alignment: Alignment.center,
+                children: [
+                  Container(
+                    width: 72,
+                    height: 72,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: const Color(0xFFFF5252).withValues(alpha: 0.15),
+                      border: Border.all(color: const Color(0xFFFF5252), width: 2),
+                    ),
+                    child: Center(
+                      child: Icon(
+                        world.icon,
+                        size: 38,
+                        color: const Color(0xFF38BDF8),
+                      ),
+                    ),
+                  ),
+                  Positioned(
+                    right: 0,
+                    bottom: 0,
+                    child: Container(
+                      padding: const EdgeInsets.all(5),
+                      decoration: const BoxDecoration(
+                        color: Color(0xFFFF5252),
+                        shape: BoxShape.circle,
+                      ),
+                      child: const Icon(Icons.lock_rounded, size: 14, color: Colors.white),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 14),
+
+              // Title
+              const Text(
+                'NOT ENOUGH GEMS!',
+                style: TextStyle(
+                  color: Color(0xFFFF5252),
+                  fontWeight: FontWeight.w900,
+                  fontSize: 20,
+                  letterSpacing: 1.2,
+                ),
+              ),
+              const SizedBox(height: 6),
+
+              // Subtitle
+              Text(
+                'Cannot unlock "${world.name}" Realm',
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w800,
+                  fontSize: 14,
+                ),
+              ),
+              const SizedBox(height: 16),
+
+              // Cost breakdown card
+              Container(
+                padding: const EdgeInsets.all(14),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF1E293B),
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(color: const Color(0xFF334155)),
+                ),
+                child: Column(
+                  children: [
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        const Text(
+                          'Realm Unlock Cost:',
+                          style: TextStyle(color: Colors.white70, fontSize: 13),
+                        ),
+                        Row(
+                          children: [
+                            const Icon(Icons.diamond_rounded, color: Color(0xFFFFD700), size: 15),
+                            const SizedBox(width: 4),
+                            Text(
+                              '${world.unlockGems}',
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontWeight: FontWeight.w900,
+                                fontSize: 13,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        const Text(
+                          'Your Current Gems:',
+                          style: TextStyle(color: Colors.white70, fontSize: 13),
+                        ),
+                        Row(
+                          children: [
+                            const Icon(Icons.diamond_rounded, color: Color(0xFFFFD700), size: 15),
+                            const SizedBox(width: 4),
+                            Text(
+                              '$_gems',
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontWeight: FontWeight.w900,
+                                fontSize: 13,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                    const Padding(
+                      padding: EdgeInsets.symmetric(vertical: 8),
+                      child: Divider(color: Color(0xFF334155), height: 1),
+                    ),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        const Text(
+                          'Missing Gems Needed:',
+                          style: TextStyle(
+                            color: Color(0xFFFF5252),
+                            fontSize: 13,
+                            fontWeight: FontWeight.w900,
+                          ),
+                        ),
+                        Row(
+                          children: [
+                            const Icon(Icons.add_rounded, color: Color(0xFFFF5252), size: 15),
+                            const SizedBox(width: 2),
+                            const Icon(Icons.diamond_rounded, color: Color(0xFFFF5252), size: 14),
+                            const SizedBox(width: 3),
+                            Text(
+                              '$deficit',
+                              style: const TextStyle(
+                                color: Color(0xFFFF5252),
+                                fontWeight: FontWeight.w900,
+                                fontSize: 14,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 14),
+
+              // Helpful tip
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF0284C7).withValues(alpha: 0.15),
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: const Color(0xFF0284C7).withValues(alpha: 0.4)),
+                ),
+                child: const Row(
+                  children: [
+                    Icon(Icons.lightbulb_outline_rounded, color: Color(0xFF38BDF8), size: 18),
+                    SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        'Fly through pipes to collect Sky Gems or complete daily quests to earn more!',
+                        style: TextStyle(color: Color(0xFFBAE6FD), fontSize: 11),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 18),
+
+              // Got it button
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton(
+                  onPressed: () => Navigator.of(ctx).pop(),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF0284C7),
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                    elevation: 4,
+                  ),
+                  child: const Text(
+                    'GOT IT',
+                    style: TextStyle(
+                      fontWeight: FontWeight.w900,
+                      letterSpacing: 1.1,
+                      fontSize: 14,
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 
   Future<void> _selectWorld(String worldId) async {
