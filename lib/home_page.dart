@@ -418,14 +418,15 @@ class _HomePageState extends State<HomePage>
       );
     }
 
-    // 18% chance to spawn a special Power-Up Item in the flight channel
-    if (_random.nextDouble() < 0.18) {
+    // 20% chance to spawn a special Power-Up Item in the open sky between obstacles
+    // Spawns safely midway between pipe pairs at cruising flight height with NO obstacles nearby
+    if (_random.nextDouble() < 0.20) {
       const types = PowerUpType.values;
       final type = types[_random.nextInt(types.length)];
       _powerUpItems.add(
         PowerUpItem(
-          x: pipe.x + (_pipeWidth / 2) + 40.0,
-          baseY: top + (gap / 2) + (_random.nextDouble() - 0.5) * 40.0,
+          x: pipe.x + (_pipeSpacing * 0.50),
+          baseY: (skyH * 0.40).clamp(minPipe + 40.0, skyH - minPipe - 40.0),
           type: type,
         ),
       );
@@ -484,7 +485,8 @@ class _HomePageState extends State<HomePage>
     _activePowerUps.removeWhere((p) => !p.update(dt));
 
     final effectivePipeSpeed = _currentPipeSpeed;
-    final effectiveGravity = _isSlowMo ? _currentGravity * 0.70 : _currentGravity;
+    final effectiveGravity = _isSlowMo ? _currentGravity * 0.65 : _currentGravity;
+    final effectiveMaxFall = _isSlowMo ? _currentMaxFallSpeed * 0.70 : _currentMaxFallSpeed;
 
     if (_status != GameStatus.gameOver) {
       _groundScroll = (_groundScroll + effectivePipeSpeed * dt) % 24.0;
@@ -510,8 +512,8 @@ class _HomePageState extends State<HomePage>
 
       case GameStatus.playing:
         _velocity += effectiveGravity * dt;
-        if (_velocity > _currentMaxFallSpeed) {
-          _velocity = _currentMaxFallSpeed;
+        if (_velocity > effectiveMaxFall) {
+          _velocity = effectiveMaxFall;
         }
         _birdY += _velocity * dt;
 
@@ -622,12 +624,24 @@ class _HomePageState extends State<HomePage>
         // Power-Ups
         for (final pup in _powerUpItems) {
           pup.x -= effectivePipeSpeed * dt;
+
+          // Gentle natural attraction so player doesn't have to swerve dangerously near obstacles
+          if (!pup.collected) {
+            final double ddx = _birdX - pup.x;
+            final double ddy = _birdY - pup.y;
+            final double dist = sqrt(ddx * ddx + ddy * ddy);
+            if (dist < 95.0) {
+              pup.x += (ddx / dist) * 160.0 * dt;
+              pup.y += (ddy / dist) * 160.0 * dt;
+            }
+          }
+
           pup.update(dt);
 
           if (!pup.collected) {
             final double dx = (pup.x - _birdX).abs();
             final double dy = (pup.y - _birdY).abs();
-            if (dx < 32.0 && dy < 32.0) {
+            if (dx < 38.0 && dy < 38.0) {
               pup.collected = true;
               _activatePowerUp(pup.type);
             }
@@ -657,8 +671,9 @@ class _HomePageState extends State<HomePage>
     if (_soundEnabled) {
       AudioManager.instance.playPowerUp();
     }
-    _triggerHaptic(HapticFeedbackType.heavy);
-    _screenShakeIntensity = 6.0;
+    _triggerHaptic(HapticFeedbackType.light);
+    // Instant safety shield: guarantees collecting a power-up never leads to an immediate unfair collision
+    _shieldInvulnerableTime = max(_shieldInvulnerableTime, 1.2);
 
     _activePowerUps.removeWhere((p) => p.type == type);
     _activePowerUps.add(
@@ -791,10 +806,10 @@ class _HomePageState extends State<HomePage>
   void _handleCollisionImpact() {
     if (_hasShield) {
       _activePowerUps.removeWhere((p) => p.type == PowerUpType.shield);
-      _shieldInvulnerableTime = 1.2;
-      _screenShakeIntensity = 10.0;
+      _shieldInvulnerableTime = 1.4; // 1.4s safety window to clear the remainder of the obstacle
+      _screenShakeIntensity = 4.0;
       if (_soundEnabled) AudioManager.instance.playShield();
-      _triggerHaptic(HapticFeedbackType.heavy);
+      _triggerHaptic(HapticFeedbackType.medium);
       _burstSparkles(_birdX, _birdY, const Color(0xFF00E5FF));
 
       _floatingTexts.add(
@@ -806,7 +821,7 @@ class _HomePageState extends State<HomePage>
         ),
       );
 
-      _velocity = -220.0;
+      _velocity = -110.0; // Gentle cushion bounce instead of violent upward launch
       return;
     }
 
@@ -918,7 +933,8 @@ class _HomePageState extends State<HomePage>
   void _jump() {
     _flapsThisGame++;
     setState(() {
-      _velocity = _currentJumpVelocity;
+      // In slow motion, scale jump velocity proportionally with gravity so the bird stays completely in control
+      _velocity = _isSlowMo ? _currentJumpVelocity * 0.72 : _currentJumpVelocity;
       _rotation = -0.38;
       _flapPulse = 1.14;
     });
