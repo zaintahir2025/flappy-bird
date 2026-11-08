@@ -8,17 +8,24 @@ import 'package:path_provider/path_provider.dart';
 import 'game_models.dart';
 import 'leaderboard_model.dart';
 
+bool _docDirFailed = false;
+String? _documentsDirPath;
+
 /// Resolves a file within the platform's sandboxed application documents directory
 /// (essential for Android, iOS, Windows, macOS, Linux) with graceful relative fallback.
 Future<File> _getFile(String filename) async {
+  if (_docDirFailed) {
+    return File(filename);
+  }
   try {
-    final dir = await getApplicationDocumentsDirectory();
-    final docFile = File('${dir.path}/$filename');
+    _documentsDirPath ??= (await getApplicationDocumentsDirectory()).path;
+    final docFile = File('$_documentsDirPath/$filename');
     if (await docFile.exists()) return docFile;
     final localFile = File(filename);
     if (await localFile.exists()) return localFile;
     return docFile;
   } catch (_) {
+    _docDirFailed = true;
     return File(filename);
   }
 }
@@ -167,6 +174,48 @@ Future<void> saveLastPlayerName(String name) async {
   try {
     final file = await _getFile('flappy_name.txt');
     await file.writeAsString(name.trim());
+  } catch (_) {}
+}
+
+/// Checks if the player has ever explicitly set and saved their pilot name.
+Future<bool> hasSavedPlayerName() async {
+  if (_inMemoryName != null) {
+    return _inMemoryName != 'PILOT' && _inMemoryName!.trim().isNotEmpty;
+  }
+  try {
+    final file = await _getFile('flappy_name.txt');
+    if (await file.exists()) {
+      final content = (await file.readAsString()).trim();
+      _inMemoryName = content;
+      return content.isNotEmpty && content != 'PILOT';
+    }
+  } catch (_) {}
+  return false;
+}
+
+bool? _inMemoryNameConfigured;
+
+/// Checks if the pilot registration prompt has ever been completed.
+Future<bool> loadIsNameConfigured() async {
+  if (_inMemoryNameConfigured != null) return _inMemoryNameConfigured!;
+  try {
+    final file = await _getFile('flappy_name_configured.txt');
+    if (await file.exists()) {
+      final content = (await file.readAsString()).trim();
+      _inMemoryNameConfigured = content == 'true';
+      return _inMemoryNameConfigured!;
+    }
+  } catch (_) {}
+  _inMemoryNameConfigured = false;
+  return false;
+}
+
+/// Persists whether the pilot registration prompt has ever been completed.
+Future<void> saveIsNameConfigured(bool configured) async {
+  _inMemoryNameConfigured = configured;
+  try {
+    final file = await _getFile('flappy_name_configured.txt');
+    await file.writeAsString(configured ? 'true' : 'false');
   } catch (_) {}
 }
 

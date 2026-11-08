@@ -92,6 +92,28 @@ Future<void> saveLastPlayerName(String name) async {
   } catch (_) {}
 }
 
+Future<bool> hasSavedPlayerName() async {
+  try {
+    final val = web.window.localStorage.getItem('flappy_pilot_name');
+    return val != null && val.trim().isNotEmpty && val.trim() != 'PILOT';
+  } catch (_) {}
+  return false;
+}
+
+Future<bool> loadIsNameConfigured() async {
+  try {
+    final val = web.window.localStorage.getItem('flappy_name_configured');
+    return val == 'true';
+  } catch (_) {}
+  return false;
+}
+
+Future<void> saveIsNameConfigured(bool configured) async {
+  try {
+    web.window.localStorage.setItem('flappy_name_configured', configured ? 'true' : 'false');
+  } catch (_) {}
+}
+
 Future<List<String>> loadUnlockedSkins() async {
   try {
     final val = web.window.localStorage.getItem('flappy_unlocked_skins');

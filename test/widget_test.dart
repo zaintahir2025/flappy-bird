@@ -10,12 +10,18 @@ import 'package:flappy_bird/score_storage.dart' as score_storage;
 void main() {
   setUp(() async {
     await score_storage.saveBestScore(5);
+    await score_storage.saveIsNameConfigured(true);
+    await score_storage.saveLastPlayerName('PILOT');
   });
 
   tearDown(() {
     try {
       final f = File('flappy_best.txt');
       if (f.existsSync()) f.deleteSync();
+      final fc = File('flappy_name_configured.txt');
+      if (fc.existsSync()) fc.deleteSync();
+      final fn = File('flappy_name.txt');
+      if (fn.existsSync()) fn.deleteSync();
     } catch (_) {}
   });
 
@@ -371,5 +377,35 @@ void main() {
 
     final categories = achievements.map((a) => a.category).toSet();
     expect(categories.length, 7);
+  });
+
+  testWidgets('First-time pilot name registration prompt appears only once before first flight and saves cleanly', (WidgetTester tester) async {
+    await score_storage.saveIsNameConfigured(false);
+    try {
+      final fn = File('flappy_name.txt');
+      if (fn.existsSync()) fn.deleteSync();
+      final fc = File('flappy_name_configured.txt');
+      if (fc.existsSync()) fc.deleteSync();
+    } catch (_) {}
+
+    await tester.pumpWidget(const MyApp());
+    await tester.pump(const Duration(milliseconds: 50));
+    await tester.pump(const Duration(milliseconds: 50));
+
+    // Tap to fly for the first time without a saved name
+    await tester.tap(find.text('TAP OR PRESS SPACE TO FLY'));
+    await tester.pump();
+
+    // Verify Pilot Registration dialog is shown
+    expect(find.text('PILOT REGISTRATION'), findsOneWidget);
+    expect(find.text('START FLYING'), findsOneWidget);
+
+    // Tap START FLYING to confirm
+    await tester.tap(find.text('START FLYING'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 50));
+
+    // Verify game starts and score HUD is visible
+    expect(find.text('0'), findsOneWidget);
   });
 }

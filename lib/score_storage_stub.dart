@@ -20,6 +20,9 @@ Future<void> savePlayerStats(PlayerStats stats) async {}
 
 Future<String> loadLastPlayerName() async => 'PILOT';
 Future<void> saveLastPlayerName(String name) async {}
+Future<bool> hasSavedPlayerName() async => false;
+Future<bool> loadIsNameConfigured() async => false;
+Future<void> saveIsNameConfigured(bool configured) async {}
 
 Future<List<String>> loadUnlockedSkins() async => ['classic'];
 Future<void> saveUnlockedSkins(List<String> skins) async {}

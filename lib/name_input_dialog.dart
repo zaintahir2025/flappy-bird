@@ -12,11 +12,27 @@ class NameInputDialog extends StatefulWidget {
   // Callback function invoked with the confirmed player name
   final ValueChanged<String> onSubmit;
 
+  // Optional custom title header
+  final String? title;
+
+  // Optional custom subtitle text
+  final String? subtitle;
+
+  // Optional confirm button label
+  final String? confirmButtonText;
+
+  // Optional callback invoked when the user skips
+  final VoidCallback? onSkip;
+
   const NameInputDialog({
     super.key,
     required this.score,
     required this.initialName,
     required this.onSubmit,
+    this.title,
+    this.subtitle,
+    this.confirmButtonText,
+    this.onSkip,
   });
 
   @override
@@ -78,18 +94,18 @@ class _NameInputDialogState extends State<NameInputDialog> {
             child: Column(
               mainAxisSize: MainAxisSize.min, // Shrink-wraps vertically to content
             children: [
-              // Achievement medal icon
-              const Icon(
-                Icons.military_tech_rounded,
-                color: Color(0xFFF09030),
+              // Achievement medal icon / Pilot badge
+              Icon(
+                widget.score > 0 ? Icons.military_tech_rounded : Icons.flight_takeoff_rounded,
+                color: const Color(0xFFF09030),
                 size: 42,
               ),
               const SizedBox(height: 8),
 
               // Title Header
-              const Text(
-                'RECORD FLIGHT!',
-                style: TextStyle(
+              Text(
+                widget.title ?? (widget.score > 0 ? 'RECORD FLIGHT!' : 'PILOT REGISTRATION'),
+                style: const TextStyle(
                   fontSize: 22,
                   fontWeight: FontWeight.w900,
                   letterSpacing: 2,
@@ -98,9 +114,13 @@ class _NameInputDialogState extends State<NameInputDialog> {
               ),
               const SizedBox(height: 6),
 
-              // Score announcement subtitle
+              // Score announcement / callsign prompt subtitle
               Text(
-                'You scored ${widget.score} points!',
+                widget.subtitle ??
+                    (widget.score > 0
+                        ? 'You scored ${widget.score} points!'
+                        : 'Choose your call-sign for the Hall of Fame!'),
+                textAlign: TextAlign.center,
                 style: const TextStyle(
                   fontSize: 14,
                   fontWeight: FontWeight.bold,
@@ -176,7 +196,10 @@ class _NameInputDialogState extends State<NameInputDialog> {
                   // Skip button
                   Expanded(
                     child: TextButton(
-                      onPressed: () => Navigator.of(context, rootNavigator: true).pop(),
+                      onPressed: () {
+                        widget.onSkip?.call();
+                        Navigator.of(context, rootNavigator: true).pop();
+                      },
                       style: TextButton.styleFrom(
                         foregroundColor: const Color(0xFF554A18),
                       ),
@@ -201,9 +224,10 @@ class _NameInputDialogState extends State<NameInputDialog> {
                           borderRadius: BorderRadius.circular(10),
                         ),
                       ),
-                      child: const Text(
-                        'SAVE RECORD',
-                        style: TextStyle(
+                      child: Text(
+                        widget.confirmButtonText ??
+                            (widget.score > 0 ? 'SAVE RECORD' : 'CONFIRM CALL-SIGN'),
+                        style: const TextStyle(
                           fontWeight: FontWeight.w900,
                           letterSpacing: 1,
                         ),

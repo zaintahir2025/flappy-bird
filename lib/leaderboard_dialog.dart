@@ -12,6 +12,9 @@ class LeaderboardDialog extends StatefulWidget {
   // The local player's cumulative career stats
   final PlayerStats stats;
 
+  // The local player's current total Sky Gems wallet balance
+  final int totalGems;
+
   // Optional callback executed when the dialog is dismissed
   final VoidCallback? onClose;
 
@@ -19,6 +22,7 @@ class LeaderboardDialog extends StatefulWidget {
     super.key,
     required this.leaderboard,
     required this.stats,
+    this.totalGems = 0,
     this.onClose,
   });
 
@@ -418,6 +422,24 @@ class _LeaderboardDialogState extends State<LeaderboardDialog> {
             widget.stats.averageScore.toStringAsFixed(1),
             Icons.speed_rounded,
             const Color(0xFF9C27B0),
+          ),
+          const SizedBox(height: 8),
+
+          // Total Lifetime Sky Gems Collected
+          _buildStatRow(
+            'Sky Gems Collected',
+            '${widget.stats.totalGemsCollected}',
+            Icons.diamond_rounded,
+            const Color(0xFFFFD700),
+          ),
+          const SizedBox(height: 8),
+
+          // Current Sky Gems Wallet Balance
+          _buildStatRow(
+            'Current Gem Wallet',
+            '${widget.totalGems}',
+            Icons.account_balance_wallet_rounded,
+            const Color(0xFF00E5FF),
           ),
           const SizedBox(height: 12),
 

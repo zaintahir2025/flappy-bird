@@ -86,7 +86,9 @@ class _HomePageState extends State<HomePage>
   int _flapsThisGame = 0;
   int _streak = 0;
   int _gemsThisGame = 0;
+  int _gemPickupsThisGame = 0;
   int _totalGems = 0;
+  double _gemCounterScale = 1.0;
 
   // Sound enabled state
   bool _soundEnabled = true;
@@ -107,6 +109,7 @@ class _HomePageState extends State<HomePage>
   List<LeaderboardEntry> _leaderboard = List.from(LeaderboardEntry.defaultLeaderboard);
   PlayerStats _playerStats = const PlayerStats();
   String _pilotName = 'PILOT';
+  bool _hasConfiguredName = false;
   GameSettings _settings = const GameSettings();
   bool _recordSubmittedThisRound = false;
 
@@ -230,9 +233,12 @@ class _HomePageState extends State<HomePage>
   Future<void> _loadAllData() async {
     try {
       final best = await score_storage.loadBestScore();
+      final hasName = await score_storage.hasSavedPlayerName();
+      final configured = await score_storage.loadIsNameConfigured();
       if (mounted) {
         setState(() {
           _bestScore = best;
+          _hasConfiguredName = configured || hasName;
         });
       }
     } catch (_) {}
@@ -285,6 +291,15 @@ class _HomePageState extends State<HomePage>
   bool get _isSlowMo => _activePowerUps.any((p) => p.type == PowerUpType.slowMotion);
   bool get _isMagnet => _activePowerUps.any((p) => p.type == PowerUpType.magnet);
   bool get _is2xMultiplier => _activePowerUps.any((p) => p.type == PowerUpType.scoreMultiplier);
+
+  BirdSkinConfig? get _nextLockedSkin {
+    for (final skin in BirdSkinConfig.all) {
+      if (!_unlockedSkins.contains(skin.id) && skin.gemCost > 0) {
+        return skin;
+      }
+    }
+    return null;
+  }
 
   void _triggerHaptic(HapticFeedbackType type) {
     if (!_settings.isHapticsEnabled) return;
@@ -500,6 +515,9 @@ class _HomePageState extends State<HomePage>
     if (_flapPulse > 1.0) {
       _flapPulse = (_flapPulse - dt * 2.5).clamp(1.0, 1.25);
     }
+    if (_gemCounterScale > 1.0) {
+      _gemCounterScale = (_gemCounterScale - dt * 2.5).clamp(1.0, 1.5);
+    }
 
     switch (_status) {
       case GameStatus.ready:
@@ -586,11 +604,13 @@ class _HomePageState extends State<HomePage>
             final double dy = (gem.y - _birdY).abs();
             if (dx < 30.0 && dy < 30.0) {
               gem.collected = true;
+              _gemPickupsThisGame += 1;
               final gemVal = _is2xMultiplier ? gem.value * 2 : gem.value;
               _score += gemVal;
               _gemsThisGame += gemVal;
               _totalGems += gemVal;
               _scoreScale = 1.38;
+              _gemCounterScale = 1.45;
 
               if (_soundEnabled) {
                 AudioManager.instance.playGem();
@@ -599,11 +619,12 @@ class _HomePageState extends State<HomePage>
               _triggerHaptic(HapticFeedbackType.medium);
               _burstSparkles(gem.x, gem.y, const Color(0xFFFFD700));
 
+              final popupText = _is2xMultiplier ? '+$gemVal GEMS (2X)!' : '+$gemVal GEMS!';
               _floatingTexts.add(
                 FloatingPopupText(
                   x: gem.x,
                   y: gem.y - 14,
-                  text: '+$gemVal GEM!',
+                  text: popupText,
                   color: const Color(0xFFFFD54F),
                 ),
               );
@@ -856,9 +877,11 @@ class _HomePageState extends State<HomePage>
       totalFlaps: _playerStats.totalFlaps + _flapsThisGame,
       totalScore: _playerStats.totalScore + _score,
       bestScore: max(_playerStats.bestScore, _bestScore),
+      totalGemsCollected: _playerStats.totalGemsCollected + _gemsThisGame,
     );
     _playerStats = newStats;
     score_storage.savePlayerStats(newStats);
+    score_storage.saveTotalGems(_totalGems);
 
     setState(() {
       _status = GameStatus.gameOver;
@@ -867,11 +890,9 @@ class _HomePageState extends State<HomePage>
     });
 
     if (_score > 0 && _isHighScoreQualified(_score)) {
-      _callSignTimer = Timer(const Duration(milliseconds: 600), () {
-        if (mounted && _status == GameStatus.gameOver) {
-          _showCallSignPrompt();
-        }
-      });
+      // Automatically record high score with the player's saved pilot call-sign
+      // without interrupting the player with popups on game over
+      _submitScoreToLeaderboard(_pilotName);
     }
   }
 
@@ -1042,23 +1063,65 @@ class _HomePageState extends State<HomePage>
     });
   }
 
+  void _startGameplay() {
+    setState(() {
+      _status = GameStatus.playing;
+      _shieldInvulnerableTime = 1.5; // 1.5s initial spawn grace period
+      // Shift pipes forward to guarantee a wide, calm, safe takeoff runway for new players
+      final double firstPipeX = max(_arenaWidth * 1.15, _arenaWidth + 80.0);
+      for (int i = 0; i < _pipes.length; i++) {
+        _pipes[i].x = firstPipeX + (i * _pipeSpacing);
+        _pipes[i].passed = false;
+      }
+    });
+    if (_soundEnabled) {
+      AudioManager.instance.playBgm();
+    }
+    _jump();
+  }
+
+  void _showInitialNamePrompt() {
+    _showModalSafe(
+      (context) => NameInputDialog(
+        score: 0,
+        initialName: _pilotName == 'PILOT' ? '' : _pilotName,
+        title: 'PILOT REGISTRATION',
+        subtitle: 'Enter your call-sign before your first takeoff!',
+        confirmButtonText: 'START FLYING',
+        onSubmit: (name) async {
+          final trimmed = name.trim().isEmpty ? 'PILOT' : name.trim();
+          setState(() {
+            _pilotName = trimmed;
+            _hasConfiguredName = true;
+          });
+          await score_storage.saveLastPlayerName(trimmed);
+          await score_storage.saveIsNameConfigured(true);
+          if (mounted && _status == GameStatus.ready) {
+            _startGameplay();
+          }
+        },
+        onSkip: () async {
+          setState(() {
+            _hasConfiguredName = true;
+          });
+          await score_storage.saveLastPlayerName('PILOT');
+          await score_storage.saveIsNameConfigured(true);
+          if (mounted && _status == GameStatus.ready) {
+            _startGameplay();
+          }
+        },
+      ),
+    );
+  }
+
   void _handleUserInput() {
     switch (_status) {
       case GameStatus.ready:
-        setState(() {
-          _status = GameStatus.playing;
-          _shieldInvulnerableTime = 1.5; // 1.5s initial spawn grace period
-          // Shift pipes forward to guarantee a wide, calm, safe takeoff runway for new players
-          final double firstPipeX = max(_arenaWidth * 1.15, _arenaWidth + 80.0);
-          for (int i = 0; i < _pipes.length; i++) {
-            _pipes[i].x = firstPipeX + (i * _pipeSpacing);
-            _pipes[i].passed = false;
-          }
-        });
-        if (_soundEnabled) {
-          AudioManager.instance.playBgm();
+        if (!_hasConfiguredName) {
+          _showInitialNamePrompt();
+          return;
         }
-        _jump();
+        _startGameplay();
         break;
 
       case GameStatus.playing:
@@ -1090,6 +1153,8 @@ class _HomePageState extends State<HomePage>
       _streak = 0;
       _flapsThisGame = 0;
       _gemsThisGame = 0;
+      _gemPickupsThisGame = 0;
+      _gemCounterScale = 1.0;
       _isNewHighScore = false;
       _velocity = 0.0;
       _rotation = 0.0;
@@ -1221,6 +1286,7 @@ class _HomePageState extends State<HomePage>
       (context) => LeaderboardDialog(
         leaderboard: _leaderboard,
         stats: _playerStats,
+        totalGems: _totalGems,
       ),
     );
   }
@@ -1486,6 +1552,63 @@ class _HomePageState extends State<HomePage>
                                         ),
                                       ),
                                     ),
+                                    // In-flight Live Gem Counter
+                                    Transform.scale(
+                                      scale: _gemCounterScale,
+                                      child: Container(
+                                        margin: const EdgeInsets.only(top: 4),
+                                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
+                                        decoration: BoxDecoration(
+                                          color: Colors.black.withValues(alpha: 0.70),
+                                          borderRadius: BorderRadius.circular(14),
+                                          border: Border.all(
+                                            color: const Color(0xFFFFD700).withValues(alpha: 0.8),
+                                            width: 1.2,
+                                          ),
+                                          boxShadow: const [
+                                            BoxShadow(
+                                              color: Color(0x55FFD700),
+                                              blurRadius: 8,
+                                              spreadRadius: 1,
+                                            ),
+                                          ],
+                                        ),
+                                        child: Row(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            const Icon(Icons.diamond_rounded, color: Color(0xFFFFD700), size: 14),
+                                            const SizedBox(width: 4),
+                                            Text(
+                                              '+$_gemsThisGame',
+                                              style: const TextStyle(
+                                                fontSize: 13,
+                                                fontWeight: FontWeight.w900,
+                                                color: Color(0xFFFFD700),
+                                                letterSpacing: 0.6,
+                                              ),
+                                            ),
+                                            if (_is2xMultiplier) ...[
+                                              const SizedBox(width: 5),
+                                              Container(
+                                                padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+                                                decoration: BoxDecoration(
+                                                  color: const Color(0xFFFF9100),
+                                                  borderRadius: BorderRadius.circular(4),
+                                                ),
+                                                child: const Text(
+                                                  '2X',
+                                                  style: TextStyle(
+                                                    fontSize: 9,
+                                                    fontWeight: FontWeight.w900,
+                                                    color: Colors.black,
+                                                  ),
+                                                ),
+                                              ),
+                                            ],
+                                          ],
+                                        ),
+                                      ),
+                                    ),
                                     if (_streak > 1) ...[
                                       const SizedBox(height: 4),
                                       Container(
@@ -1615,7 +1738,7 @@ class _HomePageState extends State<HomePage>
               color: const Color(0xFFFFB300),
               onTap: _openLeaderboard,
             ),
-            const SizedBox(width: 8),
+            const SizedBox(width: 4),
             _buildHudIconButton(
               icon: Icons.settings_rounded,
               tooltip: 'Settings (O)',
@@ -1625,33 +1748,77 @@ class _HomePageState extends State<HomePage>
           ],
         ),
 
-        // Center Button: Pause / Audio toggle
-        if (_status == GameStatus.playing || _status == GameStatus.paused)
-          _buildHudIconButton(
-            icon: _status == GameStatus.paused ? Icons.play_arrow_rounded : Icons.pause_rounded,
-            tooltip: _status == GameStatus.paused ? 'Resume (P)' : 'Pause (P)',
-            color: Colors.white,
-            onTap: _togglePause,
-          )
-        else
-          _buildHudIconButton(
-            icon: _soundEnabled ? Icons.volume_up_rounded : Icons.volume_off_rounded,
-            tooltip: _soundEnabled ? 'Mute Audio (M)' : 'Unmute Audio (M)',
-            color: _soundEnabled ? Colors.white : Colors.white54,
-            onTap: _toggleSound,
+        // Center: Interactive Sky Gems Wallet Pill
+        Flexible(
+          child: FittedBox(
+            fit: BoxFit.scaleDown,
+            child: Material(
+              color: Colors.black.withValues(alpha: 0.65),
+              borderRadius: BorderRadius.circular(20),
+              child: InkWell(
+                onTap: _openAviaryDialog,
+                borderRadius: BorderRadius.circular(20),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(color: const Color(0xFFFFD700), width: 1.2),
+                    boxShadow: const [
+                      BoxShadow(
+                        color: Color(0x33FFD700),
+                        blurRadius: 6,
+                      ),
+                    ],
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Icon(Icons.diamond_rounded, color: Color(0xFFFFD700), size: 15),
+                      const SizedBox(width: 4),
+                      Text(
+                        '$_totalGems GEMS',
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w900,
+                          fontSize: 11,
+                          letterSpacing: 0.5,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
           ),
+        ),
 
-        // Right side: Sound toggle (during gameplay) + Skin Picker + World Picker
+        // Right side: Controls (Pause/Sound) + Skin Picker + World Picker
         Row(
+          mainAxisSize: MainAxisSize.min,
           children: [
             if (_status == GameStatus.playing || _status == GameStatus.paused) ...[
+              _buildHudIconButton(
+                icon: _status == GameStatus.paused ? Icons.play_arrow_rounded : Icons.pause_rounded,
+                tooltip: _status == GameStatus.paused ? 'Resume (P)' : 'Pause (P)',
+                color: Colors.white,
+                onTap: _togglePause,
+              ),
+              const SizedBox(width: 4),
               _buildHudIconButton(
                 icon: _soundEnabled ? Icons.volume_up_rounded : Icons.volume_off_rounded,
                 tooltip: _soundEnabled ? 'Mute Audio (M)' : 'Unmute Audio (M)',
                 color: _soundEnabled ? Colors.white : Colors.white54,
                 onTap: _toggleSound,
               ),
-              const SizedBox(width: 8),
+              const SizedBox(width: 4),
+            ] else ...[
+              _buildHudIconButton(
+                icon: _soundEnabled ? Icons.volume_up_rounded : Icons.volume_off_rounded,
+                tooltip: _soundEnabled ? 'Mute Audio (M)' : 'Unmute Audio (M)',
+                color: _soundEnabled ? Colors.white : Colors.white54,
+                onTap: _toggleSound,
+              ),
+              const SizedBox(width: 4),
             ],
             _buildHudIconButton(
               icon: skinConfig.icon,
@@ -1659,7 +1826,7 @@ class _HomePageState extends State<HomePage>
               color: skinConfig.particleColor,
               onTap: _openAviaryDialog,
             ),
-            const SizedBox(width: 8),
+            const SizedBox(width: 4),
             _buildHudIconButton(
               icon: worldData.icon,
               tooltip: 'Theme: ${worldData.name} (T)',
@@ -2071,6 +2238,29 @@ class _HomePageState extends State<HomePage>
               ],
             ),
           ),
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+          decoration: BoxDecoration(
+            color: Colors.black.withValues(alpha: 0.6),
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(color: const Color(0xFFFFD700).withValues(alpha: 0.5), width: 1.2),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(Icons.diamond_rounded, color: Color(0xFFFFD700), size: 18),
+              const SizedBox(width: 6),
+              Text(
+                'SKY GEMS: $_totalGems',
+                style: const TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w900,
+                  color: Color(0xFFFFD700),
+                ),
+              ),
+            ],
+          ),
+        ),
         ElevatedButton.icon(
           onPressed: _openLeaderboard,
           icon: const Icon(Icons.emoji_events_rounded, size: 16),
@@ -2160,7 +2350,50 @@ class _HomePageState extends State<HomePage>
                       color: Colors.white,
                     ),
                   ),
-                  const SizedBox(height: 20),
+                  const SizedBox(height: 16),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                    decoration: BoxDecoration(
+                      color: Colors.black.withValues(alpha: 0.45),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: Colors.white12),
+                    ),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceAround,
+                      children: [
+                        Column(
+                          children: [
+                            const Text('SCORE', style: TextStyle(fontSize: 10, color: Colors.white70, fontWeight: FontWeight.bold)),
+                            const SizedBox(height: 2),
+                            Text('$_score', style: const TextStyle(fontSize: 18, color: Colors.white, fontWeight: FontWeight.w900)),
+                          ],
+                        ),
+                        Container(width: 1, height: 26, color: Colors.white12),
+                        Column(
+                          children: [
+                            const Text('RUN GEMS', style: TextStyle(fontSize: 10, color: Color(0xFFFFD700), fontWeight: FontWeight.bold)),
+                            const SizedBox(height: 2),
+                            Row(
+                              children: [
+                                const Icon(Icons.diamond_rounded, size: 14, color: Color(0xFFFFD700)),
+                                const SizedBox(width: 3),
+                                Text('+$_gemsThisGame', style: const TextStyle(fontSize: 18, color: Color(0xFFFFD700), fontWeight: FontWeight.w900)),
+                              ],
+                            ),
+                          ],
+                        ),
+                        Container(width: 1, height: 26, color: Colors.white12),
+                        Column(
+                          children: [
+                            const Text('WALLET', style: TextStyle(fontSize: 10, color: Color(0xFF38BDF8), fontWeight: FontWeight.bold)),
+                            const SizedBox(height: 2),
+                            Text('$_totalGems', style: const TextStyle(fontSize: 18, color: Color(0xFF38BDF8), fontWeight: FontWeight.w900)),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 16),
                   ElevatedButton.icon(
                     onPressed: _togglePause,
                     icon: const Icon(Icons.play_arrow_rounded),
@@ -2336,21 +2569,140 @@ class _HomePageState extends State<HomePage>
                             ),
                           ),
                         ],
-                        const SizedBox(height: 8),
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            const Icon(Icons.diamond_rounded, color: Color(0xFFFFD700), size: 16),
-                            const SizedBox(width: 4),
-                            Text(
-                              '+$_gemsThisGame Sky Gems Collected',
-                              style: const TextStyle(
-                                color: Color(0xFFFFD700),
-                                fontWeight: FontWeight.w900,
-                                fontSize: 12,
-                              ),
+                        const SizedBox(height: 12),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFF1E2630),
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(
+                              color: const Color(0xFFFFD700).withValues(alpha: 0.4),
+                              width: 1.2,
                             ),
-                          ],
+                          ),
+                          child: Column(
+                            children: [
+                              Row(
+                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                children: [
+                                  Flexible(
+                                    child: Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        const Icon(Icons.diamond_rounded, color: Color(0xFFFFD700), size: 16),
+                                        const SizedBox(width: 4),
+                                        Flexible(
+                                          child: Text(
+                                            _gemsThisGame > 0
+                                                ? '+$_gemsThisGame Gems'
+                                                : '0 Gems',
+                                            style: const TextStyle(
+                                              color: Color(0xFFFFD700),
+                                              fontWeight: FontWeight.w900,
+                                              fontSize: 13,
+                                            ),
+                                            overflow: TextOverflow.ellipsis,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                  const SizedBox(width: 6),
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                    decoration: BoxDecoration(
+                                      color: Colors.black54,
+                                      borderRadius: BorderRadius.circular(10),
+                                      border: Border.all(color: Colors.white24),
+                                    ),
+                                    child: Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        const Text(
+                                          'Wallet: ',
+                                          style: TextStyle(
+                                            color: Colors.white70,
+                                            fontSize: 10,
+                                            fontWeight: FontWeight.w600,
+                                          ),
+                                        ),
+                                        const Icon(Icons.diamond_rounded, color: Color(0xFFFFD700), size: 12),
+                                        const SizedBox(width: 2),
+                                        Text(
+                                          '$_totalGems',
+                                          style: const TextStyle(
+                                            color: Colors.white,
+                                            fontSize: 11,
+                                            fontWeight: FontWeight.w900,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              if (_gemPickupsThisGame > 0) ...[
+                                const SizedBox(height: 4),
+                                Align(
+                                  alignment: Alignment.centerLeft,
+                                  child: Text(
+                                    '$_gemPickupsThisGame crystal${_gemPickupsThisGame == 1 ? '' : 's'} collected in this flight',
+                                    style: TextStyle(
+                                      color: Colors.white.withValues(alpha: 0.6),
+                                      fontSize: 10,
+                                      fontStyle: FontStyle.italic,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                              if (_nextLockedSkin != null) ...[
+                                const SizedBox(height: 8),
+                                const Divider(color: Colors.white12, height: 1),
+                                const SizedBox(height: 6),
+                                Row(
+                                  children: [
+                                    Icon(_nextLockedSkin!.icon, size: 14, color: _nextLockedSkin!.particleColor),
+                                    const SizedBox(width: 6),
+                                    Expanded(
+                                      child: Text(
+                                        'Next: ${_nextLockedSkin!.name}',
+                                        style: const TextStyle(
+                                          color: Colors.white,
+                                          fontSize: 11,
+                                          fontWeight: FontWeight.w700,
+                                        ),
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                    ),
+                                    Text(
+                                      '$_totalGems / ${_nextLockedSkin!.gemCost} 💎',
+                                      style: TextStyle(
+                                        color: _totalGems >= _nextLockedSkin!.gemCost
+                                            ? const Color(0xFF4CAF50)
+                                            : const Color(0xFFFFD700),
+                                        fontSize: 11,
+                                        fontWeight: FontWeight.w900,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 4),
+                                ClipRRect(
+                                  borderRadius: BorderRadius.circular(3),
+                                  child: LinearProgressIndicator(
+                                    value: (_totalGems / _nextLockedSkin!.gemCost).clamp(0.0, 1.0),
+                                    minHeight: 4,
+                                    backgroundColor: Colors.white12,
+                                    valueColor: AlwaysStoppedAnimation<Color>(
+                                      _totalGems >= _nextLockedSkin!.gemCost
+                                          ? const Color(0xFF4CAF50)
+                                          : const Color(0xFFFFD700),
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ],
+                          ),
                         ),
                       ],
                     ),

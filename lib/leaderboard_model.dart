@@ -131,12 +131,16 @@ class PlayerStats {
   // Highest individual score ever achieved
   final int bestScore;
 
+  // Total lifetime Sky Gems collected across all flights
+  final int totalGemsCollected;
+
   // Constant constructor initializing all fields to 0 by default
   const PlayerStats({
     this.gamesPlayed = 0,
     this.totalFlaps = 0,
     this.totalScore = 0,
     this.bestScore = 0,
+    this.totalGemsCollected = 0,
   });
 
   /// Computes the lifetime average score per game played (avoids division by zero).
@@ -149,6 +153,7 @@ class PlayerStats {
         'totalFlaps': totalFlaps,
         'totalScore': totalScore,
         'bestScore': bestScore,
+        'totalGemsCollected': totalGemsCollected,
       };
 
   /// Deserializes a JSON Map into a strongly-typed PlayerStats object with safe defaults.
@@ -157,6 +162,7 @@ class PlayerStats {
         totalFlaps: (json['totalFlaps'] as num?)?.toInt() ?? 0,
         totalScore: (json['totalScore'] as num?)?.toInt() ?? 0,
         bestScore: (json['bestScore'] as num?)?.toInt() ?? 0,
+        totalGemsCollected: (json['totalGemsCollected'] as num?)?.toInt() ?? 0,
       );
 
   /// Immutable update helper: creates a copy of this PlayerStats object with optional updated fields.
@@ -165,12 +171,14 @@ class PlayerStats {
     int? totalFlaps,
     int? totalScore,
     int? bestScore,
+    int? totalGemsCollected,
   }) {
     return PlayerStats(
       gamesPlayed: gamesPlayed ?? this.gamesPlayed,
       totalFlaps: totalFlaps ?? this.totalFlaps,
       totalScore: totalScore ?? this.totalScore,
       bestScore: bestScore ?? this.bestScore,
+      totalGemsCollected: totalGemsCollected ?? this.totalGemsCollected,
     );
   }
 }
