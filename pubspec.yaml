@@ -1,7 +1,7 @@
 name: flappy_bird
 description: A new Flutter project.
 publish_to: 'none'
-version: 2.1.1+4
+version: 2.2.0+5
 
 environment:
   sdk: '>=3.0.0-290.3.beta <4.0.0'
