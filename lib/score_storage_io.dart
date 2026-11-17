@@ -20,14 +20,29 @@ Future<File> _getFile(String filename) async {
   try {
     _documentsDirPath ??= (await getApplicationDocumentsDirectory()).path;
     final docFile = File('$_documentsDirPath/$filename');
-    if (await docFile.exists()) return docFile;
+    if (docFile.existsSync()) return docFile;
     final localFile = File(filename);
-    if (await localFile.exists()) return localFile;
+    if (localFile.existsSync()) return localFile;
     return docFile;
   } catch (_) {
     _docDirFailed = true;
     return File(filename);
   }
+}
+
+String? _readFileSafe(File file) {
+  try {
+    if (file.existsSync()) {
+      return file.readAsStringSync();
+    }
+  } catch (_) {}
+  return null;
+}
+
+void _writeFileSafe(File file, String content) {
+  try {
+    file.writeAsStringSync(content);
+  } catch (_) {}
 }
 
 // Fast in-memory caches to avoid repeated disk reads during active gameplay frames
@@ -53,8 +68,8 @@ Future<int> loadBestScore() async {
 
   try {
     final file = await _getFile('flappy_best.txt');
-    if (await file.exists()) {
-      final content = await file.readAsString();
+    final content = _readFileSafe(file);
+    if (content != null) {
       _inMemoryBest = int.tryParse(content.trim()) ?? 0;
       return _inMemoryBest;
     }
@@ -67,7 +82,7 @@ Future<void> saveBestScore(int score) async {
   _inMemoryBest = score;
   try {
     final file = await _getFile('flappy_best.txt');
-    await file.writeAsString(score.toString());
+    _writeFileSafe(file, score.toString());
   } catch (_) {}
 }
 
@@ -77,8 +92,8 @@ Future<int> loadTotalGems() async {
 
   try {
     final file = await _getFile('flappy_gems.txt');
-    if (await file.exists()) {
-      final content = await file.readAsString();
+    final content = _readFileSafe(file);
+    if (content != null) {
       _inMemoryGems = int.tryParse(content.trim()) ?? 0;
       return _inMemoryGems!;
     }
@@ -92,7 +107,7 @@ Future<void> saveTotalGems(int gems) async {
   _inMemoryGems = max(0, gems);
   try {
     final file = await _getFile('flappy_gems.txt');
-    await file.writeAsString(_inMemoryGems.toString());
+    _writeFileSafe(file, _inMemoryGems.toString());
   } catch (_) {}
 }
 
@@ -102,8 +117,8 @@ Future<List<LeaderboardEntry>> loadLeaderboard() async {
 
   try {
     final file = await _getFile('flappy_leaderboard.json');
-    if (await file.exists()) {
-      final content = await file.readAsString();
+    final content = _readFileSafe(file);
+    if (content != null) {
       _inMemoryLeaderboard = LeaderboardEntry.decodeList(content);
       return _inMemoryLeaderboard!;
     }
@@ -118,7 +133,7 @@ Future<void> saveLeaderboard(List<LeaderboardEntry> list) async {
   _inMemoryLeaderboard = List.from(list);
   try {
     final file = await _getFile('flappy_leaderboard.json');
-    await file.writeAsString(LeaderboardEntry.encodeList(list));
+    _writeFileSafe(file, LeaderboardEntry.encodeList(list));
   } catch (_) {}
 }
 
@@ -128,8 +143,8 @@ Future<PlayerStats> loadPlayerStats() async {
 
   try {
     final file = await _getFile('flappy_stats.json');
-    if (await file.exists()) {
-      final content = await file.readAsString();
+    final content = _readFileSafe(file);
+    if (content != null) {
       _inMemoryStats =
           PlayerStats.fromJson(jsonDecode(content) as Map<String, dynamic>);
       return _inMemoryStats!;
@@ -145,7 +160,7 @@ Future<void> savePlayerStats(PlayerStats stats) async {
   _inMemoryStats = stats;
   try {
     final file = await _getFile('flappy_stats.json');
-    await file.writeAsString(jsonEncode(stats.toJson()));
+    _writeFileSafe(file, jsonEncode(stats.toJson()));
   } catch (_) {}
 }
 
@@ -155,12 +170,10 @@ Future<String> loadLastPlayerName() async {
 
   try {
     final file = await _getFile('flappy_name.txt');
-    if (await file.exists()) {
-      final content = (await file.readAsString()).trim();
-      if (content.isNotEmpty) {
-        _inMemoryName = content;
-        return _inMemoryName!;
-      }
+    final content = _readFileSafe(file)?.trim();
+    if (content != null && content.isNotEmpty) {
+      _inMemoryName = content;
+      return _inMemoryName!;
     }
   } catch (_) {}
 
@@ -173,7 +186,7 @@ Future<void> saveLastPlayerName(String name) async {
   _inMemoryName = name.trim();
   try {
     final file = await _getFile('flappy_name.txt');
-    await file.writeAsString(name.trim());
+    _writeFileSafe(file, name.trim());
   } catch (_) {}
 }
 
@@ -184,8 +197,8 @@ Future<bool> hasSavedPlayerName() async {
   }
   try {
     final file = await _getFile('flappy_name.txt');
-    if (await file.exists()) {
-      final content = (await file.readAsString()).trim();
+    final content = _readFileSafe(file)?.trim();
+    if (content != null) {
       _inMemoryName = content;
       return content.isNotEmpty && content != 'PILOT';
     }
@@ -200,8 +213,8 @@ Future<bool> loadIsNameConfigured() async {
   if (_inMemoryNameConfigured != null) return _inMemoryNameConfigured!;
   try {
     final file = await _getFile('flappy_name_configured.txt');
-    if (await file.exists()) {
-      final content = (await file.readAsString()).trim();
+    final content = _readFileSafe(file)?.trim();
+    if (content != null) {
       _inMemoryNameConfigured = content == 'true';
       return _inMemoryNameConfigured!;
     }
@@ -215,7 +228,7 @@ Future<void> saveIsNameConfigured(bool configured) async {
   _inMemoryNameConfigured = configured;
   try {
     final file = await _getFile('flappy_name_configured.txt');
-    await file.writeAsString(configured ? 'true' : 'false');
+    _writeFileSafe(file, configured ? 'true' : 'false');
   } catch (_) {}
 }
 
@@ -225,8 +238,9 @@ Future<List<String>> loadUnlockedSkins() async {
 
   try {
     final file = await _getFile('flappy_skins.json');
-    if (await file.exists()) {
-      final decoded = jsonDecode(await file.readAsString()) as List<dynamic>;
+    final content = _readFileSafe(file);
+    if (content != null) {
+      final decoded = jsonDecode(content) as List<dynamic>;
       _inMemorySkins = decoded.cast<String>();
       if (!_inMemorySkins!.contains('classic')) {
         _inMemorySkins!.add('classic');
@@ -244,7 +258,7 @@ Future<void> saveUnlockedSkins(List<String> skins) async {
   _inMemorySkins = List.from(skins);
   try {
     final file = await _getFile('flappy_skins.json');
-    await file.writeAsString(jsonEncode(_inMemorySkins));
+    _writeFileSafe(file, jsonEncode(_inMemorySkins));
   } catch (_) {}
 }
 
@@ -254,8 +268,9 @@ Future<List<String>> loadUnlockedWorlds() async {
 
   try {
     final file = await _getFile('flappy_worlds.json');
-    if (await file.exists()) {
-      final decoded = jsonDecode(await file.readAsString()) as List<dynamic>;
+    final content = _readFileSafe(file);
+    if (content != null) {
+      final decoded = jsonDecode(content) as List<dynamic>;
       _inMemoryWorlds = decoded.cast<String>();
       if (!_inMemoryWorlds!.contains('sunrise_valley')) {
         _inMemoryWorlds!.add('sunrise_valley');
@@ -273,7 +288,7 @@ Future<void> saveUnlockedWorlds(List<String> worlds) async {
   _inMemoryWorlds = List.from(worlds);
   try {
     final file = await _getFile('flappy_worlds.json');
-    await file.writeAsString(jsonEncode(_inMemoryWorlds));
+    _writeFileSafe(file, jsonEncode(_inMemoryWorlds));
   } catch (_) {}
 }
 
@@ -283,12 +298,10 @@ Future<String> loadActiveSkin() async {
 
   try {
     final file = await _getFile('flappy_active_skin.txt');
-    if (await file.exists()) {
-      final id = (await file.readAsString()).trim();
-      if (id.isNotEmpty) {
-        _inMemoryActiveSkin = id;
-        return _inMemoryActiveSkin!;
-      }
+    final content = _readFileSafe(file)?.trim();
+    if (content != null && content.isNotEmpty) {
+      _inMemoryActiveSkin = content;
+      return _inMemoryActiveSkin!;
     }
   } catch (_) {}
 
@@ -301,7 +314,7 @@ Future<void> saveActiveSkin(String skinId) async {
   _inMemoryActiveSkin = skinId;
   try {
     final file = await _getFile('flappy_active_skin.txt');
-    await file.writeAsString(skinId);
+    _writeFileSafe(file, skinId);
   } catch (_) {}
 }
 
@@ -311,12 +324,10 @@ Future<String> loadActiveWorld() async {
 
   try {
     final file = await _getFile('flappy_active_world.txt');
-    if (await file.exists()) {
-      final id = (await file.readAsString()).trim();
-      if (id.isNotEmpty) {
-        _inMemoryActiveWorld = id;
-        return _inMemoryActiveWorld!;
-      }
+    final content = _readFileSafe(file)?.trim();
+    if (content != null && content.isNotEmpty) {
+      _inMemoryActiveWorld = content;
+      return _inMemoryActiveWorld!;
     }
   } catch (_) {}
 
@@ -329,7 +340,7 @@ Future<void> saveActiveWorld(String worldId) async {
   _inMemoryActiveWorld = worldId;
   try {
     final file = await _getFile('flappy_active_world.txt');
-    await file.writeAsString(worldId);
+    _writeFileSafe(file, worldId);
   } catch (_) {}
 }
 
@@ -342,8 +353,9 @@ Future<List<DailyChallenge>> loadDailyChallenges(DateTime now) async {
 
   try {
     final file = await _getFile('flappy_daily.json');
-    if (await file.exists()) {
-      final map = jsonDecode(await file.readAsString()) as Map<String, dynamic>;
+    final content = _readFileSafe(file);
+    if (content != null) {
+      final map = jsonDecode(content) as Map<String, dynamic>;
       final savedDate = map['date'] as String?;
       if (savedDate == dateKey) {
         final list = (map['challenges'] as List<dynamic>)
@@ -370,7 +382,7 @@ Future<void> saveDailyChallenges(DateTime now, List<DailyChallenge> list) async 
 
   try {
     final file = await _getFile('flappy_daily.json');
-    await file.writeAsString(jsonEncode({
+    _writeFileSafe(file, jsonEncode({
       'date': dateKey,
       'challenges': list.map((c) => c.toJson()).toList(),
     }));
@@ -389,8 +401,9 @@ Future<List<WeeklyChallenge>> loadWeeklyChallenges(DateTime now) async {
 
   try {
     final file = await _getFile('flappy_weekly.json');
-    if (await file.exists()) {
-      final map = jsonDecode(await file.readAsString()) as Map<String, dynamic>;
+    final content = _readFileSafe(file);
+    if (content != null) {
+      final map = jsonDecode(content) as Map<String, dynamic>;
       final savedWeek = map['week'] as String?;
       if (savedWeek == weekKey) {
         final list = (map['challenges'] as List<dynamic>)
@@ -420,7 +433,7 @@ Future<void> saveWeeklyChallenges(DateTime now, List<WeeklyChallenge> list) asyn
 
   try {
     final file = await _getFile('flappy_weekly.json');
-    await file.writeAsString(jsonEncode({
+    _writeFileSafe(file, jsonEncode({
       'week': weekKey,
       'challenges': list.map((c) => c.toJson()).toList(),
     }));
@@ -434,8 +447,9 @@ Future<List<Achievement>> loadAchievements() async {
   final defaults = Achievement.initialList();
   try {
     final file = await _getFile('flappy_achievements.json');
-    if (await file.exists()) {
-      final list = jsonDecode(await file.readAsString()) as List<dynamic>;
+    final content = _readFileSafe(file);
+    if (content != null) {
+      final list = jsonDecode(content) as List<dynamic>;
       final Map<String, Map<String, dynamic>> savedMap = {
         for (final item in list)
           (item as Map<String, dynamic>)['id'] as String: item,
@@ -461,7 +475,7 @@ Future<void> saveAchievements(List<Achievement> list) async {
   _inMemoryAchievements = List.from(list);
   try {
     final file = await _getFile('flappy_achievements.json');
-    await file.writeAsString(jsonEncode(list.map((a) => a.toJson()).toList()));
+    _writeFileSafe(file, jsonEncode(list.map((a) => a.toJson()).toList()));
   } catch (_) {}
 }
 
@@ -471,8 +485,9 @@ Future<GameSettings> loadGameSettings() async {
 
   try {
     final file = await _getFile('flappy_settings.json');
-    if (await file.exists()) {
-      final map = jsonDecode(await file.readAsString()) as Map<String, dynamic>;
+    final content = _readFileSafe(file);
+    if (content != null) {
+      final map = jsonDecode(content) as Map<String, dynamic>;
       _inMemorySettings = GameSettings.fromJson(map);
       return _inMemorySettings!;
     }
@@ -487,6 +502,6 @@ Future<void> saveGameSettings(GameSettings settings) async {
   _inMemorySettings = settings;
   try {
     final file = await _getFile('flappy_settings.json');
-    await file.writeAsString(jsonEncode(settings.toJson()));
+    _writeFileSafe(file, jsonEncode(settings.toJson()));
   } catch (_) {}
 }

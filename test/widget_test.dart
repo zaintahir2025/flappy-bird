@@ -259,7 +259,7 @@ void main() {
     expect(find.byIcon(Icons.volume_up_rounded), findsOneWidget);
   });
 
-  test('AudioManager triggers all sound effects and handles mute states safely', () async {
+  testWidgets('AudioManager triggers all sound effects and handles mute states safely', (WidgetTester tester) async {
     final audio = AudioManager.instance;
     await audio.init();
 
@@ -286,6 +286,7 @@ void main() {
     await audio.pauseBgm();
     await audio.resumeBgm();
     await audio.stopBgm();
+    audio.dispose();
   });
 
   test('World Biomes system provides all 7 distinct atmospheric worlds with progression requirements', () {
@@ -402,10 +403,14 @@ void main() {
 
     // Tap START FLYING to confirm
     await tester.tap(find.text('START FLYING'));
-    await tester.pump();
-    await tester.pump(const Duration(milliseconds: 50));
+    for (int i = 0; i < 8; i++) {
+      await tester.pump(const Duration(milliseconds: 50));
+    }
 
     // Verify game starts and score HUD is visible
     expect(find.text('0'), findsOneWidget);
+
+    // Unmount widget so active game ticker is disposed cleanly
+    await tester.pumpWidget(const SizedBox());
   });
 }
