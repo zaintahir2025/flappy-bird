@@ -4,6 +4,12 @@ A neo-arcade Flappy Bird reimagined in Flutter featuring responsive multiplatfor
 
 ---
 
+## Live Web Demo
+
+Play directly in your browser: [https://zaintahir2025.github.io/flappy-bird/](https://zaintahir2025.github.io/flappy-bird/)
+
+---
+
 ## Overview
 
 Flappy Bird: Skybound Edition modernizes the classic arcade flight formula with high-fidelity cross-platform graphics, progressive difficulty scaling, procedural world environments, and an extensive progression system. The game runs natively on Android, iOS, Windows, macOS, Linux, and Web browsers with zero external backend dependencies.
